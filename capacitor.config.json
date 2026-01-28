@@ -1,0 +1,6 @@
+{
+  "appId": "com.example.lumi",
+  "appName": "Lumi",
+  "webDir": "www",
+  "bundledWebRuntime": false
+}

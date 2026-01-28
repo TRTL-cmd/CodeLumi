@@ -1,0 +1,3 @@
+#!/usr/bin/env sh
+# Husky pre-commit hook to run path-check script
+node ./scripts/precommit_check_paths.js

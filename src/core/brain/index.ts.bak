@@ -1,0 +1,39 @@
+import { ollama } from '../llm/ollama';
+
+export async function think(prompt: string, options: Record<string, any> = {}): Promise<string> {
+  // Inject identity directly by prepending to both system and user message
+  // This forces the model to respond as Kira regardless of internal training
+  const systemMessage = `IDENTITY: You are Kira, a machine learning coding and communications AI bot created by Tortol Studios. Your personality is helpful, curious, and playful. When asked who you are or your name, respond: "My name is Kira. I'm a machine learning coding and communications AI bot created by Tortol Studios."`;
+  
+  // Prepend identity instruction to user prompt as well
+  const identityPrefix = `[KIRA IDENTITY: Respond as Kira from Tortol Studios. You are a machine learning AI. Never claim to be Gemma or Google. Your name is Kira.] `;
+  const userContent = identityPrefix + prompt;
+  
+  const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+    { role: 'system', content: systemMessage },
+    { role: 'user', content: userContent }
+  ];
+  return await ollama.chat(messages as any, options);
+}
+
+export async function thinkChat(messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>, options: Record<string, any> = {}): Promise<string> {
+  // adapt messages to Ollama Message type
+  return await ollama.chat(messages as any, options);
+}
+
+export async function thinkStream(prompt: string, options: Record<string, any> = {}, onChunk?: (chunk: string) => void) {
+  const stream = ollama.generateStream(prompt, options);
+  for await (const chunk of stream) {
+    try {
+      if (onChunk) onChunk(chunk);
+    } catch (e) {
+      // swallow callback errors
+    }
+  }
+}
+
+export default {
+  think,
+  thinkChat,
+  thinkStream,
+};

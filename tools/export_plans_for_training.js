@@ -1,0 +1,39 @@
+#!/usr/bin/env node
+// Export plan records from a Codelumi KB JSON file into JSONL suitable for training or inspection.
+// Usage: node tools/export_plans_for_training.js path/to/lumi_knowledge.json [out.jsonl]
+
+const fs = require('fs');
+const path = require('path');
+
+function usage(){
+  console.log('Usage: node tools/export_plans_for_training.js path/to/lumi_knowledge.json [out.jsonl]');
+}
+
+async function main(){
+  const infile = process.argv[2];
+  const outfile = process.argv[3] || null;
+  if(!infile){ usage(); process.exit(1); }
+  if(!fs.existsSync(infile)){ console.error('Input file not found:', infile); process.exit(2); }
+  const raw = fs.readFileSync(infile, 'utf8');
+  let kb = null;
+  try{ kb = JSON.parse(raw); }catch(e){ console.error('Invalid JSON:', e.message); process.exit(3); }
+  const plans = (kb && kb.meta && Array.isArray(kb.meta.plans)) ? kb.meta.plans : [];
+  const out = outfile ? fs.createWriteStream(outfile, {flags:'w'}) : process.stdout;
+  let count = 0;
+  for(const p of plans){
+    const item = {
+      id: p.id || ('plan_'+(count+1)),
+      t: p.t || Date.now(),
+      goal: p.goal || '',
+      steps: (p.steps||[]).map(s=> s.description || (s.action || '') ),
+      simulation: p.simulation || null,
+      opts: p.opts || {}
+    };
+    out.write(JSON.stringify(item) + '\n');
+    count++;
+  }
+  if(outfile) out.end();
+  console.log('\nExported', count, 'plan records');
+}
+
+main().catch(e=>{ console.error(e); process.exit(10); });

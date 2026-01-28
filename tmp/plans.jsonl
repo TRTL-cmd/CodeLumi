@@ -1,0 +1,1 @@
+{"id":"plan_my5elcn","t":1768735456380,"goal":"Run tests and summarize failures","steps":["Install dev deps","Run test command","Collect failing tests and stack traces"],"simulation":null,"opts":{"accepted":true}}

@@ -1,0 +1,34 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kira Test Harness</title>
+  </head>
+  <body>
+    <h1>Kira Test Harness</h1>
+    <div>
+      <label>Prompt:</label><br />
+      <textarea id="prompt" rows="4" cols="80">Hello, please introduce yourself briefly.</textarea>
+    </div>
+
+    <div style="margin-top:8px;">
+      <button id="btnThink">Think (invoke)</button>
+      <button id="btnStream">Start Stream</button>
+      <button id="btnStopStream">Stop Stream</button>
+    </div>
+
+    <h3>Output</h3>
+    <pre id="output" style="background:#111;color:#eee;padding:8px;height:220px;overflow:auto;"></pre>
+
+    <h3>Memory</h3>
+    <div>
+      <input id="memContent" placeholder="Short memory text" style="width:60%" />
+      <button id="btnRemember">Remember</button>
+      <button id="btnSearch">Search</button>
+    </div>
+    <pre id="memory" style="background:#f6f6f6;padding:8px;height:160px;overflow:auto;"></pre>
+
+    <script type="module" src="/src/renderer_test.ts"></script>
+  </body>
+</html>

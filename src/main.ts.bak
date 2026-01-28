@@ -1,0 +1,111 @@
+import { app, BrowserWindow, ipcMain } from 'electron';
+import * as path from 'path';
+import * as fs from 'fs/promises';
+import { think, thinkStream, thinkChat } from './core/brain/index';
+
+function createWindow() {
+  const win = new BrowserWindow({
+    width: 1000,
+    height: 720,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+
+  if (process.env.VITE_DEV_SERVER_URL) {
+    win.loadURL(process.env.VITE_DEV_SERVER_URL);
+  } else {
+    // Load the production build from the `dist` folder
+    win.loadFile(path.join(__dirname, '../dist/index.html'));
+  }
+}
+
+app.whenReady().then(() => {
+  createWindow();
+
+  app.on('activate', function () {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+});
+
+app.on('window-all-closed', function () {
+  if (process.platform !== 'darwin') app.quit();
+});
+
+// IPC handlers for persistence
+ipcMain.handle('kira-save', async (event, data) => {
+  try {
+    const dir = app.getPath('userData');
+    const file = path.join(dir, 'kira_knowledge.json');
+    await fs.writeFile(file, JSON.stringify(data, null, 2), 'utf-8');
+    // also attempt to write a copy into the project `training/` folder when available
+    let trainingPath: string | null = null;
+    try {
+      const repoTraining = path.join(process.cwd(), 'training');
+      await fs.mkdir(repoTraining, { recursive: true });
+      const trainingFile = path.join(repoTraining, 'kira_knowledge.json');
+      await fs.writeFile(trainingFile, JSON.stringify(data, null, 2), 'utf-8');
+      trainingPath = trainingFile;
+    } catch (e) {
+      // ignore write failures to repo folder
+    }
+    return { ok: true, path: file, trainingPath };
+  } catch (e) {
+    return { ok: false, error: e?.message };
+  }
+});
+
+ipcMain.handle('kira-load', async () => {
+  try {
+    const dir = app.getPath('userData');
+    const file = path.join(dir, 'kira_knowledge.json');
+    const raw = await fs.readFile(file, 'utf-8');
+    return JSON.parse(raw);
+  } catch (e) {
+    return null;
+  }
+});
+
+ipcMain.handle('kira-shutdown', async () => {
+  try {
+    app.quit();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e?.message };
+  }
+});
+
+// Brain IPC: simple invoke for single-response generation
+ipcMain.handle('kira-think', async (_event, prompt: string, options = {}) => {
+  try {
+    const out = await think(prompt, options);
+    return { ok: true, output: out };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+// Brain IPC: chat-style
+ipcMain.handle('kira-chat', async (_event, messages: any[], options = {}) => {
+  try {
+    const out = await thinkChat(messages, options);
+    return { ok: true, output: out };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+// Brain IPC: streaming. Renderer should listen for 'kira-think-chunk' and 'kira-think-done'.
+ipcMain.on('kira-think-stream-start', async (event, prompt: string, options = {}) => {
+  const sender = event.sender;
+  try {
+    await thinkStream(prompt, options, (chunk: string) => {
+      sender.send('kira-think-chunk', chunk);
+    });
+    sender.send('kira-think-done');
+  } catch (e: any) {
+    sender.send('kira-think-error', e?.message || String(e));
+  }
+});

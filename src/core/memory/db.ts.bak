@@ -1,0 +1,55 @@
+import Dexie from 'dexie';
+
+export interface MemoryEntry {
+  id?: number;
+  type: string; // e.g., 'note', 'fact', 'event'
+  content: string;
+  tags?: string[];
+  metadata?: Record<string, any>;
+  createdAt: number;
+}
+
+class KiraDB extends Dexie {
+  entries!: Dexie.Table<MemoryEntry, number>;
+
+  constructor() {
+    super('kira_memory');
+    // Index by id (auto), type, and createdAt for simple queries
+    this.version(1).stores({ entries: '++id,type,createdAt' });
+    this.entries = this.table('entries');
+  }
+}
+
+export const db = new KiraDB();
+
+export async function remember(item: Omit<MemoryEntry, 'id' | 'createdAt'>): Promise<number> {
+  const entry: MemoryEntry = { ...item, createdAt: Date.now() };
+  return await db.entries.add(entry);
+}
+
+export async function recallById(id: number): Promise<MemoryEntry | undefined> {
+  return await db.entries.get(id);
+}
+
+export async function queryByType(type: string): Promise<MemoryEntry[]> {
+  return await db.entries.where('type').equals(type).toArray();
+}
+
+export async function searchText(query: string): Promise<MemoryEntry[]> {
+  const q = query.toLowerCase();
+  const all = await db.entries.toArray();
+  return all.filter((e) => e.content.toLowerCase().includes(q) || (e.tags || []).some(t => t.toLowerCase().includes(q)));
+}
+
+export async function clearMemory(): Promise<void> {
+  await db.entries.clear();
+}
+
+export default {
+  db,
+  remember,
+  recallById,
+  queryByType,
+  searchText,
+  clearMemory,
+};

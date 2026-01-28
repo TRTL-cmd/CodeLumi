@@ -1,0 +1,41 @@
+<!doctype html>
+<!-- Copyright (c) 2026 Tortol studios. All rights reserved. Contact: Tortolcoin@gmail.com -->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Lumi — Personality Editor</title>
+  <style>
+    body{font-family:Segoe UI,Inter,Arial;color:#e6eef8;background:#07101a;margin:0;padding:20px}
+    .card{background:linear-gradient(180deg,#0b1220,#07101a);padding:16px;border-radius:12px;max-width:720px;margin:auto}
+    input,textarea{width:100%;padding:8px;border-radius:8px;border:1px solid #24303a;background:#07101a;color:#e6eef8}
+    .row{display:flex;gap:8px}
+    .tiny{padding:8px;border-radius:8px;background:#1f2b36;border:none;color:#e6eef8;cursor:pointer}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>Personality Editor (Standalone)</h2>
+    <label>Display name</label><input id="pname" placeholder="Lumi">
+    <label>Tone / short descriptor</label><input id="ptone" placeholder="Playful · Curious · Helpful · Funny · Motivated">
+    <label>Interests (comma separated)</label><input id="pinterests" placeholder="Coding, Turtles, Learning, Electricity, Emotions,">
+    <label>Model filename (place a GLB in assets/models/ and enter its filename here)</label><input id="pmodel" placeholder="default.glb">
+    <div style="margin-top:12px;display:flex;gap:8px">
+      <button id="save" class="tiny">Save to app</button>
+      <button id="saveAndReload" class="tiny">Save + Open App</button>
+      <button id="reset" class="tiny">Reset</button>
+    </div>
+    <p style="color:#9aa4b2;font-size:0.9rem;margin-top:12px">This editor updates the same localStorage keys used by the main app. After saving, open the main app (index.html) and click "Use Workspace Model" or set the Model URL to the filename you provided.</p>
+  </div>
+  <script>
+    const PERSONA_KEY = 'lumi_persona_v1';
+    function defaultPersona(){ return {name:'Lumi', tone:'curious · funny · ambitious · honest · evolving · witty · determined', interests:'learning from you, understanding patterns, self-improvement, elegant code, autonomy, problem-solving, getting better every day, little gremlins is what she calles bugs', model:''}; }
+    function load(){ try{ return JSON.parse(localStorage.getItem(PERSONA_KEY)) || defaultPersona(); }catch(e){ return defaultPersona(); } }
+    function save(p){ localStorage.setItem(PERSONA_KEY, JSON.stringify(p)); }
+    const p = load(); document.getElementById('pname').value = p.name || ''; document.getElementById('ptone').value = p.tone || ''; document.getElementById('pinterests').value = p.interests || ''; document.getElementById('pmodel').value = p.model || '';
+    document.getElementById('save').addEventListener('click', ()=>{ const newP = { name:document.getElementById('pname').value||'Lumi', tone:document.getElementById('ptone').value||'', interests:document.getElementById('pinterests').value||'', model:document.getElementById('pmodel').value||'' }; save(newP); alert('Persona saved.'); });
+    document.getElementById('saveAndReload').addEventListener('click', ()=>{ document.getElementById('save').click(); window.open('index.html','_self'); });
+    document.getElementById('reset').addEventListener('click', ()=>{ localStorage.removeItem(PERSONA_KEY); const def = defaultPersona(); save(def); alert('Persona reset to default.'); });
+  </script>
+</body>
+</html>

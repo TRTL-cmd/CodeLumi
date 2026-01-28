@@ -1,0 +1,42 @@
+#!/usr/bin/env node
+// Simple retrain wrapper: export KB -> run Python trainer -> write artifact
+// Usage: node tools/retrain.js path/to/lumi_knowledge.json [models/out.joblib]
+
+const { spawnSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+
+function usage(){
+  console.log('Usage: node tools/retrain.js path/to/lumi_knowledge.json [models/out.joblib]');
+}
+
+async function main(){
+  const infile = process.argv[2];
+  const outModel = process.argv[3] || 'models/reranker.joblib';
+  if(!infile){ usage(); process.exit(1); }
+  if(!fs.existsSync(infile)){ console.error('Input file not found:', infile); process.exit(2); }
+  // ensure tmp and models dirs
+  if(!fs.existsSync('tmp')) fs.mkdirSync('tmp');
+  if(!fs.existsSync('models')) fs.mkdirSync('models');
+  const tmp = 'tmp/training.jsonl';
+
+  console.log('Exporting KB QA pairs to', tmp);
+  const exp = spawnSync(process.execPath, [path.join(__dirname,'export_kb_for_training.js'), infile, tmp], { stdio: 'inherit' });
+  if(exp.status !== 0){ console.error('Export failed'); process.exit(exp.status || 4); }
+
+  console.log('Running Python trainer (tools/train_reranker.py)');
+  const py = spawnSync('python', [path.join(__dirname,'train_reranker.py'), tmp, outModel], { stdio: 'inherit' });
+  if(py.status !== 0){ console.error('Training failed'); process.exit(py.status || 5); }
+
+  console.log('Retrain complete. Model written to', outModel);
+  // attempt ONNX conversion (best-effort)
+  try{
+    const onnxOut = outModel.replace(/\.joblib$/, '.onnx');
+    console.log('Converting trained model to ONNX:', onnxOut);
+    const conv = spawnSync('python', [path.join(__dirname,'convert_to_onnx.py'), outModel, onnxOut], { stdio: 'inherit' });
+    if(conv.status !== 0){ console.warn('ONNX conversion failed or skipped'); }
+    else console.log('ONNX model written to', onnxOut);
+  }catch(e){ console.warn('ONNX conversion error', e); }
+}
+
+main().catch(e=>{ console.error(e); process.exit(10); });

@@ -1,0 +1,2164 @@
+﻿<!doctype html>
+<!-- Copyright (c) 2026 Tortol studios. All rights reserved. Contact: Tortolcoin@gmail.com -->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' https:; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; style-src 'self' 'unsafe-inline' https:; connect-src 'self' https: blob: data:; img-src 'self' data: blob:;">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lumi Desktop</title>
+  <style>
+    :root{--bg:#0b1220;--card:#0f1724;--accent:#ff7ab6;--muted:#9aa4b2}
+    html,body{height:100%;margin:0;background:linear-gradient(180deg,#071029 0%,#0b1220 100%);font-family:Inter,Segoe UI,Arial;color:#e6eef8}
+    #lumi{position:fixed;right:20px;top:50%;transform:translateY(-50%);width:340px;z-index:10000;cursor:grab}
+    .avatar{background:linear-gradient(180deg,#101827,#08101a);border-radius:12px;padding:12px;box-shadow:0 12px 40px rgba(0,0,0,.6);display:flex;gap:12px;align-items:flex-start}
+    /* hide legacy SVG avatar (pink square) to prefer the main 3D model */
+    .svg-face{display:none;width:84px;height:84px;flex:0 0 84px}
+    .body{flex:1}
+    .name{font-weight:700;font-size:1.05rem}
+    .tone{color:var(--muted);font-size:.86rem;margin-top:4px}
+    .controls{margin-top:10px;display:flex;gap:8px}
+    .qa{margin-top:12px;display:flex;gap:8px}
+    .qa input{flex:1;padding:8px;border-radius:8px;border:1px solid #24303a;background:#07101a;color:#e6eef8}
+    .bubble{position:fixed;left:24%;top:45%;transform:translate(-50%, -50%);max-width:300px;background:#ffffff;color:#0b1220;padding:12px 14px;border-radius:12px;box-shadow:0 8px 20px rgba(2,6,23,.25);white-space:pre-wrap;display:none;box-sizing:border-box;font-size:13px;line-height:1.4;overflow:auto;max-height:220px;z-index:10001;pointer-events:auto}
+    #codePanel{display:none}
+    .code-area{width:100%;height:220px;margin-top:10px;background:#07101a;color:#e6eef8;padding:10px;border-radius:8px;border:1px solid #24303a;font-family:Consolas,monospace;white-space:pre-wrap;overflow:auto}
+    .analysis{margin-top:8px;background:#07101a;padding:8px;border-radius:8px;border:1px solid #24303a;color:#e6eef8;max-height:260px;overflow:auto;white-space:pre-wrap}
+    dialog{border-radius:8px;padding:12px;border:1px solid #24303a;background:#0b1220;color:#e6eef8}
+    .tiny{background:#1f2b36;padding:6px 8px;border-radius:8px;border:none;color:#e6eef8;cursor:pointer}
+    button{background:var(--accent);border:none;color:#fff;padding:6px 10px;border-radius:8px;cursor:pointer}
+  </style>
+</head>
+<body>
+  <div id="lumi" title="Drag me">
+    <div class="avatar" id="avatarRoot">
+      <svg class="svg-face" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Lumi avatar">
+        <!-- stylized anime-like face (simple, non-photoreal) -->
+        <defs>
+          <linearGradient id="hair" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#ff9ccf"/><stop offset="1" stop-color="#ff6aa6"/></linearGradient>
+        </defs>
+        <rect width="120" height="120" rx="16" fill="url(#hair)"/>
+        <circle cx="36" cy="54" r="8" fill="#fff"/>
+        <circle cx="84" cy="54" r="8" fill="#fff"/>
+        <path d="M38 76 Q60 90 82 76" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round"/>
+        <!-- blush -->
+        <ellipse cx="28" cy="68" rx="6" ry="3" fill="rgba(255,255,255,0.18)"/>
+        <ellipse cx="92" cy="68" rx="6" ry="3" fill="rgba(255,255,255,0.18)"/>
+      </svg>
+
+      <div class="body">
+        <div class="name" id="lumiName">Lumi</div>
+        <div class="tone" id="lumiTone">playful · curious · helpful</div>
+
+        <div class="controls">
+          <button id="speakBtn">Say Hi</button>
+          <button id="openSettings" class="tiny">Settings</button>
+          <button id="openCurator" class="tiny">Security Curator</button>
+          <button id="selflearnToggle" class="tiny">Self‑Learn: Off</button>
+        </div>
+
+        <div class="qa">
+          <input id="question" placeholder="Ask Lumi about code or paste a snippet..." />
+          <button id="ask">Ask</button>
+        </div>
+
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button id="openCode" class="tiny">Open Code Editor</button>
+          <button id="downloadKB" class="tiny">Download KB</button>
+        </div>
+
+        <div style="font-size:.9rem;color:var(--muted);margin-top:8px" id="score">Knowledge entries: 0</div>
+        <div id="metricsPanel" style="margin-top:6px;font-size:0.85rem;color:var(--muted);display:flex;gap:10px;align-items:center">
+          <div><strong style="color:#e6eef8">Total KB:</strong> <span id="metricsTotal">0</span></div>
+          <div><strong style="color:#e6eef8">Events Today:</strong> <span id="metricsEvents">0</span></div>
+          <div><strong style="color:#e6eef8">Events/hr:</strong> <span id="metricsRate">0</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+      <!-- Combined Settings Panel: General, Personality, History, Memory -->
+      <div id="settingsPanel" style="position:fixed;right:24px;bottom:24px;width:520px;background:#0b1220;color:#e6eef8;padding:12px;border-radius:12px;display:none;box-shadow:0 18px 60px rgba(2,6,23,.6);z-index:10002">
+        <div style="display:flex;justify-content:space-between;align-items:center"><strong>Settings</strong><div><button id="closeSettings" class="tiny">Close</button></div></div>
+
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button id="settingsTabGeneral" class="tiny">General</button>
+          <button id="settingsTabPersonality" class="tiny">Personality</button>
+          <button id="settingsTabHistory" class="tiny">History</button>
+          <button id="settingsTabMemory" class="tiny">Memory</button>
+        </div>
+
+        <div id="settings_tab_general" style="margin-top:10px">
+          <label style="margin-top:8px;color:var(--muted)">3D Model (GLB filename from assets/models/)</label>
+          <div style="display:flex;gap:8px">
+            <input id="modelFilename" placeholder="default.glb" style="flex:1" />
+            <button id="loadModelBtn" class="tiny">Load Model</button>
+          </div>
+          <p style="color:var(--muted);font-size:.8rem;margin-top:4px">Place your .glb file in the assets/models/ folder and enter the filename. The app will attempt to load it immediately.</p>
+
+          <div style="margin-top:10px;border-top:1px solid #172029;padding-top:10px">
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="lumiFeedbackToggle" /> <span style="color:var(--muted);font-size:.9rem">Enable Feedback UI</span></label>
+              <label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="codelumiAutoTrainToggle" /> <span style="color:var(--muted);font-size:.9rem">Enable Auto‑Train</span></label>
+              <label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="codelumiSpinOnOpen" /> <span style="color:var(--muted);font-size:.9rem">Spin model on open</span></label>
+            </div>
+          </div>
+
+          <div id="animationsSection" style="margin-top:12px;border-top:1px solid #172029;padding-top:10px;display:none">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <strong>Animation Controls</strong>
+              <div style="font-size:.82rem;color:var(--muted)">Model &amp; procedural</div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:8px">
+              <button id="lumiAnimIdle" class="tiny">Idle</button>
+              <button id="lumiAnimWalk" class="tiny">Walk</button>
+              <button id="lumiAnimWave" class="tiny">Wave</button>
+              <button id="lumiAnimSpin" class="tiny">Spin</button>
+              <button id="lumiAnimBounce" class="tiny">Bounce</button>
+              <button id="lumiToggleRotate" class="tiny">Stop Rotate</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="settings_tab_personality" style="display:none;margin-top:10px">
+          <label style="margin-top:8px;color:var(--muted)">Display name</label>
+          <input id="personaName" placeholder="Lumi" />
+
+          <label style="margin-top:8px;color:var(--muted)">Tone / Short descriptor</label>
+          <input id="personaTone" placeholder="playful · curious · helpful · thoughtful" />
+
+          <label style="margin-top:8px;color:var(--muted)">Interests (comma separated)</label>
+          <input id="personaInterests" placeholder="coding, cats, turtles, learning" />
+
+          <div style="display:flex;gap:8px;margin-top:10px">
+            <button id="savePersona">Save Persona</button>
+            <button id="resetPersona" class="tiny">Reset</button>
+          </div>
+
+          <div id="personaHistoryPanel" style="margin-top:12px;border-top:1px solid #172029;padding-top:10px">
+            <strong>Persona History</strong>
+            <div id="personaHistoryList" style="margin-top:8px;max-height:220px;overflow:auto;padding:8px;border-radius:8px;border:1px solid #172029;background:#06101a;color:#e6eef8"></div>
+            <div style="display:flex;gap:8px;margin-top:8px"><button id="personaHistoryClose" class="tiny">Close</button><button id="personaHistoryClear" class="tiny">Clear History</button></div>
+          </div>
+        </div>
+
+        <div id="settings_tab_history" style="display:none;margin-top:10px">
+          <div style="display:flex;justify-content:space-between;align-items:center"><strong>Conversation History</strong></div>
+          <div id="historyList" style="max-height:360px;overflow:auto;margin-top:8px;background:#07101a;padding:8px;border-radius:8px;border:1px solid #24303a;color:#e6eef8;font-size:0.9rem"></div>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <button id="exportHistory">Export JSON</button>
+            <button id="clearHistory" class="tiny">Clear</button>
+          </div>
+        </div>
+
+        <div id="settings_tab_memory" style="display:none;margin-top:10px">
+          <div style="display:flex;justify-content:space-between;align-items:center"><strong>Memory Viewer</strong><div><button id="personaMemoryClose" class="tiny">Close</button></div></div>
+          <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+            <input id="memorySearch" placeholder="Search memory (keyword)" style="flex:1;padding:8px;border-radius:8px;border:1px solid #24303a;background:#06101a;color:#e6eef8" />
+            <button id="memorySearchBtn" class="tiny">Search</button>
+            <button id="memoryRefreshBtn" class="tiny">Refresh</button>
+            <button id="memoryExportBtn" class="tiny">Export</button>
+          </div>
+          <div id="memoryList" style="margin-top:10px;max-height:320px;overflow:auto;padding:8px;border-radius:8px;border:1px solid #172029;background:#0b1220"></div>
+        </div>
+      </div>
+
+      <!-- Security Curator Panel -->
+      <div id="curatorPanel" style="position:fixed;left:24px;bottom:24px;width:520px;height:520px;background:#07101a;color:#e6eef8;padding:12px;border-radius:12px;display:none;box-shadow:0 18px 60px rgba(2,6,23,.6);z-index:10004;overflow:auto">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <strong>Security Curator</strong>
+          <div><button id="closeCurator" class="tiny">Close</button></div>
+        </div>
+        <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+          <button id="curatorRefresh" class="tiny">Refresh</button>
+          <span id="curatorStatus" style="color:var(--muted);margin-left:8px">Loading…</span>
+        </div>
+        <div id="curatorList" style="margin-top:12px;max-height:420px;overflow:auto;padding:8px;border-radius:8px;border:1px solid #172029;background:#0b1220"></div>
+      </div>
+
+  <div class="bubble" id="bubble" role="status"></div>
+
+  
+
+  <div id="codePanel" style="position:fixed;left:24px;bottom:24px;width:720px;display:none;z-index:9999">
+    <div style="background:linear-gradient(180deg,#0b1220,#06101a);padding:10px;border-radius:12px;border:1px solid #24303a;box-shadow:0 18px 60px rgba(2,6,23,.6);color:#e6eef8">
+      <div style="display:flex;justify-content:space-between;align-items:center"><strong>Code Editor & Analyzer</strong><div><button id="closeCode" class="tiny">Close</button></div></div>
+      <textarea id="codeInput" class="code-area" placeholder="// Paste code here (JS/Python/C/C++)"></textarea>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button id="analyze">Analyze & Fix</button>
+        <button id="format" class="tiny">Format</button>
+        <button id="applyFix" class="tiny">Apply Fix</button>
+        <button id="downloadCode" class="tiny">Download</button>
+      </div>
+      <div class="analysis" id="analysisArea">Analysis output will appear here.</div>
+    </div>
+  </div>
+
+  <dialog id="modalPrompt">
+    <form method="dialog" style="display:flex;flex-direction:column;gap:8px">
+      <div id="modalQuestion"></div>
+      <input id="modalInput" />
+      <menu style="display:flex;gap:8px;justify-content:flex-end">
+        <button id="modalCancel" value="cancel">Cancel</button>
+        <button id="modalOk" value="ok">OK</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <script>
+  document.addEventListener('DOMContentLoaded', function(){
+    /* Elements */
+    const bubble = document.getElementById('bubble');
+    const speakBtn = document.getElementById('speakBtn');
+    const openSettings = document.getElementById('openSettings');
+    const settingsPanel = document.getElementById('settingsPanel');
+    const closeSettings = document.getElementById('closeSettings');
+    const openPersonality = document.getElementById('openPersonality');
+    const personalityPanel = document.getElementById('personalityPanel');
+    const closePersonality = document.getElementById('closePersonality');
+    const savePersona = document.getElementById('savePersona');
+    const resetPersona = document.getElementById('resetPersona');
+    const personaName = document.getElementById('personaName');
+    const personaTone = document.getElementById('personaTone');
+    const personaInterests = document.getElementById('personaInterests');
+
+    const askBtn = document.getElementById('ask');
+    const questionInput = document.getElementById('question');
+    const scoreEl = document.getElementById('score');
+    const openCode = document.getElementById('openCode');
+    const codePanel = document.getElementById('codePanel');
+    const closeCode = document.getElementById('closeCode');
+    const codeInput = document.getElementById('codeInput');
+    const analyzeBtn = document.getElementById('analyze');
+    const formatBtn = document.getElementById('format');
+    const applyFixBtn = document.getElementById('applyFix');
+    const analysisArea = document.getElementById('analysisArea');
+    const downloadKBBtn = document.getElementById('downloadKB');
+    const downloadCodeBtn = document.getElementById('downloadCode');
+    const openHistory = document.getElementById('openHistory');
+    const historyPanel = document.getElementById('historyPanel');
+    const historyList = document.getElementById('historyList');
+    const closeHistory = document.getElementById('closeHistory');
+    const selflearnToggle = document.getElementById('selflearnToggle');
+    const exportHistoryBtn = document.getElementById('exportHistory');
+    const clearHistoryBtn = document.getElementById('clearHistory');
+    const codelumiAnimIdle = document.getElementById('lumiAnimIdle') || document.getElementById('codelumiAnimIdle');
+    const codelumiAnimWalk = document.getElementById('lumiAnimWalk') || document.getElementById('codelumiAnimWalk');
+    const codelumiAnimWave = document.getElementById('lumiAnimWave') || document.getElementById('codelumiAnimWave');
+    const codelumiAnimSpin = document.getElementById('lumiAnimSpin') || document.getElementById('codelumiAnimSpin');
+    const codelumiAnimBounce = document.getElementById('lumiAnimBounce') || document.getElementById('codelumiAnimBounce');
+    const codelumiToggleRotate = document.getElementById('lumiToggleRotate') || document.getElementById('codelumiToggleRotate');
+    const codelumiFeedbackToggle = (()=>document.getElementById('lumiFeedbackToggle') || document.getElementById('codelumiFeedbackToggle'))();
+    const codelumiAutoTrainToggle = (()=>document.getElementById('lumiAutoTrainToggle') || document.getElementById('codelumiAutoTrainToggle'))();
+    const codelumiBoneSelect = document.getElementById('codelumiBoneSelect');
+    const codelumiBoneReset = document.getElementById('codelumiBoneReset');
+    const codelumiBoneX = document.getElementById('codelumiBoneX');
+    const codelumiBoneY = document.getElementById('codelumiBoneY');
+    const codelumiBoneZ = document.getElementById('codelumiBoneZ');
+    const codelumiBoneXVal = document.getElementById('codelumiBoneXVal');
+    const codelumiBoneYVal = document.getElementById('codelumiBoneYVal');
+    const codelumiBoneZVal = document.getElementById('codelumiBoneZVal');
+    const codelumiToggleBoneTree = document.getElementById('codelumiToggleBoneTree');
+    const codelumiBoneTree = document.getElementById('codelumiBoneTree');
+    const codelumiAutoBreathe = document.getElementById('lumiAutoBreathe') || document.getElementById('codelumiAutoBreathe');
+    // procedural controls (clip blend, walk/wave/breath sliders) removed per UI simplification
+
+    // keep last assistant Q/A for quick 'Mark helpful' actions
+    let _lastAssistantQA = { q: null, a: null };
+
+    const modal = document.getElementById('modalPrompt');
+    const modalQuestion = document.getElementById('modalQuestion');
+    const modalInput = document.getElementById('modalInput');
+    const modalOk = document.getElementById('modalOk');
+    const modalCancel = document.getElementById('modalCancel');
+
+    // dialog-based input/confirm helpers (avoid window.prompt/confirm)
+    async function askInput(message, defaultValue = '') {
+      try {
+        modalQuestion.textContent = message;
+        modalInput.value = defaultValue || '';
+        // ensure modal element is a HTMLDialogElement
+        if (typeof modal.showModal === 'function') modal.showModal(); else modal.style.display = 'block';
+        return await new Promise((resolve) => {
+          function cleanup() {
+            try { if (typeof modal.close === 'function') modal.close(); else modal.style.display = 'none'; } catch (_) {}
+            modalOk.removeEventListener('click', onOk);
+            modalCancel.removeEventListener('click', onCancel);
+          }
+          function onOk(e) { e && e.preventDefault && e.preventDefault(); cleanup(); resolve(modalInput.value); }
+          function onCancel(e) { e && e.preventDefault && e.preventDefault(); cleanup(); resolve(null); }
+          modalOk.addEventListener('click', onOk);
+          modalCancel.addEventListener('click', onCancel);
+          modalInput.focus();
+          modal.addEventListener('keydown', function onKey(ev){ if(ev.key==='Enter'){ ev.preventDefault(); onOk(); } if(ev.key==='Escape'){ ev.preventDefault(); onCancel(); } }, { once: true });
+        });
+      } catch (e) { return null; }
+    }
+
+    async function askConfirm(message) {
+      try {
+        modalQuestion.textContent = message;
+        modalInput.value = '';
+        modalInput.style.display = 'none';
+        if (typeof modal.showModal === 'function') modal.showModal(); else modal.style.display = 'block';
+        return await new Promise((resolve) => {
+          function cleanup() { try { if (typeof modal.close === 'function') modal.close(); else modal.style.display = 'none'; } catch (_) {} modalOk.removeEventListener('click', onOk); modalCancel.removeEventListener('click', onCancel); modalInput.style.display = ''; }
+          function onOk(e) { e && e.preventDefault && e.preventDefault(); cleanup(); resolve(true); }
+          function onCancel(e) { e && e.preventDefault && e.preventDefault(); cleanup(); resolve(false); }
+          modalOk.addEventListener('click', onOk);
+          modalCancel.addEventListener('click', onCancel);
+          modal.addEventListener('keydown', function onKey(ev){ if(ev.key==='Enter'){ ev.preventDefault(); onOk(); } if(ev.key==='Escape'){ ev.preventDefault(); onCancel(); } }, { once: true });
+        });
+      } catch (e) { return false; }
+    }
+
+    /* Persistence keys */
+    const KB_KEY = 'lumi_kb_v2';
+    const PERSONA_KEY = 'lumi_persona_v1';
+    const PERSONA_HISTORY_KEY = 'lumi_persona_history_v1';
+    const SHUT_KEY = 'lumi_shutdown';
+
+    /* Persona helpers */
+    function defaultPersona(){ return {name:'Lumi', tone:'curious · funny · ambitious · honest · evolving · witty · determined', interests:'learning from you, understanding patterns, self-improvement, elegant code, autonomy, problem-solving, getting better every day, little gremlins is what she calles bugs'}; }
+    function loadPersona(){ try{ return JSON.parse(localStorage.getItem(PERSONA_KEY)) || defaultPersona(); }catch(e){ return defaultPersona(); } }
+    function appendPersonaHistory(entry){
+      try{
+        const hist = JSON.parse(localStorage.getItem(PERSONA_HISTORY_KEY)||'[]');
+        hist.push(entry);
+        // keep last 50
+        if(hist.length>50) hist.splice(0, hist.length-50);
+        localStorage.setItem(PERSONA_HISTORY_KEY, JSON.stringify(hist));
+      }catch(e){ console.warn('appendPersonaHistory failed', e); }
+    }
+
+    // Curator wiring
+    const openCurator = document.getElementById('openCurator');
+    const curatorPanel = document.getElementById('curatorPanel');
+    const curatorList = document.getElementById('curatorList');
+    const curatorRefresh = document.getElementById('curatorRefresh');
+    const curatorStatus = document.getElementById('curatorStatus');
+    const closeCurator = document.getElementById('closeCurator');
+
+    async function renderCuratorItems() {
+      curatorStatus.textContent = 'Loading…';
+      try {
+        const res = await (window.lumi && window.lumi.staging ? window.lumi.staging.list() : { ok: false });
+        if (!res || !res.ok) {
+          curatorStatus.textContent = 'Error loading staging';
+          curatorList.innerHTML = '<div style="color:#f88">Failed to load staging items</div>';
+          return;
+        }
+        const items = res.items || [];
+        curatorStatus.textContent = `${items.length} pending`;
+        curatorList.innerHTML = '';
+        for (const it of items) {
+          const el = document.createElement('div');
+          el.style.border = '1px solid #24303a';
+          el.style.padding = '8px';
+          el.style.marginBottom = '8px';
+          el.innerHTML = `<div><strong>ID:</strong> ${String(it.id)}</div><div><strong>Q:</strong> ${String(it.q)}</div><div><strong>A:</strong> ${String(it.a)}</div><div style="margin-top:6px"><button data-action="approve">Approve</button><button data-action="reject" style="margin-left:8px">Reject</button><button data-action="delete" style="margin-left:8px">Delete</button></div>`;
+          curatorList.appendChild(el);
+          el.querySelector('button[data-action="approve"]').addEventListener('click', async ()=>{
+            try{
+              const btn = el.querySelector('button[data-action="approve"]'); if(btn) btn.disabled = true;
+              const confirmEdit = await askConfirm('Approve and keep answer as-is? Click Cancel to edit answer before approving.');
+              let res;
+              if (!confirmEdit) {
+                const edited = await askInput('Edit answer before approving:', it.a || '');
+                if (edited == null) { if(btn) btn.disabled = false; return; }
+                res = await (window.lumi && window.lumi.staging ? window.lumi.staging.approve(it.id, edited, 'curator-ui') : { ok: false, error: 'staging-unavailable' });
+              } else {
+                res = await (window.lumi && window.lumi.staging ? window.lumi.staging.approve(it.id, undefined, 'curator-ui') : { ok: false, error: 'staging-unavailable' });
+              }
+              if (!res || !res.ok) {
+                say('Approve failed: ' + (res && res.error ? String(res.error) : 'unknown'), 2200, {feedback:false});
+              } else {
+                say('Approved.', 1400, {feedback:false});
+              }
+            }catch(e){ console.warn('approve handler failed', e); say('Approve failed',2000,{feedback:false}); }
+            finally { try{ if(el && el.querySelector){ const b = el.querySelector('button[data-action="approve"]'); if(b) b.disabled = false; } }catch(_){ } await renderCuratorItems(); }
+          });
+          el.querySelector('button[data-action="reject"]').addEventListener('click', async ()=>{
+            try{
+              const btn = el.querySelector('button[data-action="reject"]'); if(btn) btn.disabled = true;
+              const reason = await askInput('Rejection reason (optional):','manual-review');
+              const res = await (window.lumi && window.lumi.staging ? window.lumi.staging.reject(it.id, reason || 'manual-review') : { ok: false, error: 'staging-unavailable' });
+              if (!res || !res.ok) say('Reject failed: ' + (res && res.error ? String(res.error) : 'unknown'), 2000, {feedback:false}); else say('Rejected.', 1200, {feedback:false});
+            }catch(e){ console.warn('reject handler failed', e); say('Reject failed',2000,{feedback:false}); }
+            finally { try{ if(el && el.querySelector){ const b = el.querySelector('button[data-action="reject"]'); if(b) b.disabled = false; } }catch(_){ } await renderCuratorItems(); }
+          });
+          el.querySelector('button[data-action="delete"]').addEventListener('click', async ()=>{
+            try{
+              if (!confirm('Delete this staging item permanently?')) return;
+              const btn = el.querySelector('button[data-action="delete"]'); if(btn) btn.disabled = true;
+              const res = await (window.lumi && window.lumi.staging ? window.lumi.staging.delete(it.id) : { ok: false, error: 'staging-unavailable' });
+              if (!res || !res.ok) say('Delete failed: ' + (res && res.error ? String(res.error) : 'unknown'), 2000, {feedback:false}); else say('Deleted.',1200,{feedback:false});
+            }catch(e){ console.warn('delete handler failed', e); say('Delete failed',2000,{feedback:false}); }
+            finally { try{ if(el && el.querySelector){ const b = el.querySelector('button[data-action="delete"]'); if(b) b.disabled = false; } }catch(_){ } await renderCuratorItems(); }
+          });
+        }
+        if (items.length === 0) curatorList.innerHTML = '<div style="color:var(--muted)">No pending items</div>';
+      } catch (e) {
+        curatorStatus.textContent = 'Error';
+        curatorList.innerHTML = `<div style="color:#f88">${String(e)}</div>`;
+      }
+    }
+
+    if (openCurator) openCurator.addEventListener('click', ()=>{ curatorPanel.style.display = 'block'; renderCuratorItems(); });
+    if (curatorRefresh) curatorRefresh.addEventListener('click', ()=> renderCuratorItems());
+    if (closeCurator) closeCurator.addEventListener('click', ()=> curatorPanel.style.display = 'none');
+
+    // Self-learn toggle in chat controls
+    async function refreshSelflearnToggle(){
+      try{
+        if(!selflearnToggle) return;
+        // prefer live agent status when available
+        try{
+          const st = await (window.lumi && window.lumi.selflearn && typeof window.lumi.selflearn.status === 'function' ? window.lumi.selflearn.status() : { ok: false });
+          if(st && st.ok && st.status) { selflearnToggle.textContent = `Self‑Learn: ${st.status.running ? 'On' : 'Off'}`; return; }
+        }catch(_){ }
+        const r = await (window.lumi && window.lumi.getSelflearnConfig ? window.lumi.getSelflearnConfig() : { ok: true, config: {} });
+        const cfg = r && r.ok ? (r.config || {}) : {};
+        selflearnToggle.textContent = `Self‑Learn: ${cfg.enabled ? 'On' : 'Off'}`;
+      }catch(e){ console.warn('refreshSelflearnToggle failed', e); }
+    }
+
+    if(selflearnToggle){
+      // Listen for self-learn lifecycle events from main so UI updates immediately
+      try{
+        if(window.lumi && typeof window.lumi.onLearningEvent === 'function'){
+          window.lumi.onLearningEvent((ev)=>{
+            try{
+              if(!ev) return;
+              if(ev.type === 'selflearn:started' || ev.type === 'selflearn:stopped'){
+                // update UI based on explicit lifecycle events
+                try{ refreshSelflearnToggle(); }catch(_){}
+              }
+            }catch(_){ }
+          });
+        }
+      }catch(_){ }
+
+      selflearnToggle.addEventListener('click', async ()=>{
+        // ensure one-click semantics: disable while acting and use live agent status
+        try{
+          selflearnToggle.disabled = true;
+          // Prefer direct IPC start/stop for responsive control
+          try{
+            if(window.lumi && window.lumi.selflearn && typeof window.lumi.selflearn.status === 'function'){
+              const st = await window.lumi.selflearn.status().catch(()=>({ ok: false }));
+              const running = st && st.ok && st.status ? !!st.status.running : false;
+              if(running){
+                // stop the agent
+                const resp = await window.lumi.selflearn.stop().catch(()=>({ ok: false }));
+                // If stop isn't available, fall back to flipping persisted config
+                if(!(resp && resp.ok) && window.lumi && window.lumi.getSelflearnConfig && window.lumi.setSelflearnConfig){
+                  const r = await window.lumi.getSelflearnConfig(); const cfg = r && r.ok ? (r.config||{}) : {}; cfg.enabled = false; await window.lumi.setSelflearnConfig(cfg).catch(()=>{});
+                }
+              } else {
+                // start the agent
+                const resp = await window.lumi.selflearn.start().catch(()=>({ ok: false }));
+                if(!(resp && resp.ok) && window.lumi && window.lumi.getSelflearnConfig && window.lumi.setSelflearnConfig){
+                  const r = await window.lumi.getSelflearnConfig(); const cfg = r && r.ok ? (r.config||{}) : {}; cfg.enabled = true; await window.lumi.setSelflearnConfig(cfg).catch(()=>{});
+                }
+              }
+            } else {
+              // Fallback: toggle persisted config when live IPC isn't available
+              const res = await (window.lumi && window.lumi.getSelflearnConfig ? window.lumi.getSelflearnConfig() : { ok: true, config: {} });
+              const cfg = res && res.ok ? (res.config || {}) : {};
+              cfg.enabled = !cfg.enabled;
+              await (window.lumi && window.lumi.setSelflearnConfig ? window.lumi.setSelflearnConfig(cfg) : Promise.resolve());
+            }
+
+            // refresh immediately and again shortly to reflect main process state
+            await refreshSelflearnToggle();
+            setTimeout(refreshSelflearnToggle, 1000);
+            try{ say(`Self learning ${selflearnToggle.textContent.includes('On') ? 'enabled' : 'disabled'}`,1500,{feedback:false}); }catch(_){ }
+          }catch(_e){ }
+        }catch(e){ console.warn('selflearn toggle failed', e); }
+        finally { try{ selflearnToggle.disabled = false; }catch(_){ } }
+      });
+    }
+
+    // Initialize toggle state
+    setTimeout(refreshSelflearnToggle, 300);
+
+    // Make curatorPanel draggable by its header while allowing internal clicks
+    try {
+      const header = curatorPanel && curatorPanel.querySelector && curatorPanel.querySelector(':scope > div');
+      if (header) {
+        header.style.cursor = 'move';
+        let dragging = false;
+        let startX = 0, startY = 0, origLeft = 0, origTop = 0;
+        header.addEventListener('mousedown', (ev) => {
+          // don't start drag when clicking buttons inside header
+          if ((ev.target && (ev.target.tagName === 'BUTTON' || ev.target.closest && ev.target.closest('button')))) return;
+          dragging = true;
+          const rect = curatorPanel.getBoundingClientRect();
+          startX = ev.clientX; startY = ev.clientY;
+          origLeft = rect.left; origTop = rect.top;
+          document.body.style.userSelect = 'none';
+        });
+        window.addEventListener('mousemove', (ev) => {
+          if (!dragging) return;
+          const dx = ev.clientX - startX; const dy = ev.clientY - startY;
+          curatorPanel.style.left = (origLeft + dx) + 'px';
+          curatorPanel.style.top = (origTop + dy) + 'px';
+          curatorPanel.style.right = 'auto';
+          curatorPanel.style.bottom = 'auto';
+        });
+        window.addEventListener('mouseup', () => { if (dragging) { dragging = false; document.body.style.userSelect = ''; } });
+      }
+    } catch (e) { /* ignore drag setup errors */ }
+
+    function savePersonaToStorage(p, opts){
+      try{
+        localStorage.setItem(PERSONA_KEY, JSON.stringify(p));
+        applyPersona(p);
+        const origin = (opts && opts.origin) ? opts.origin : 'manual';
+        const note = (opts && opts.note) ? opts.note : '';
+        appendPersonaHistory({ t: Date.now(), persona: p, origin, note, accepted: origin === 'manual' });
+      }catch(e){ console.warn('savePersonaToStorage failed', e); }
+    }
+
+    function applyPersona(p){
+      document.getElementById('lumiName').textContent = p.name || 'Lumi';
+      document.getElementById('lumiTone').textContent = p.tone || '';
+      personaName.value = p.name || '';
+      personaTone.value = p.tone || '';
+      personaInterests.value = (p.interests || '').toString();
+    }
+
+    /* KB helpers */
+    function loadKB(){ try{ return JSON.parse(localStorage.getItem(KB_KEY) || '{"qa":[],"meta":{}}'); }catch(e){ return {qa:[],meta:{}} } }
+    function saveKB(kb){
+      try{ localStorage.setItem(KB_KEY, JSON.stringify(kb)); updateScore(); }catch(e){ /* ignore */ }
+      try{
+        const remote = window.lumi;
+        if(remote && typeof remote.saveKnowledge === 'function'){
+          // fire-and-forget save to canonical file
+          remote.saveKnowledge(kb).catch(()=>{});
+        }
+      }catch(_){ }
+    }
+    
+    /* Initialize seed KB entries for persona identity (uses saved persona name) */
+    function initializeSeedKB(){
+      const kb = loadKB();
+      const persona = loadPersona();
+      const pname = persona && persona.name ? persona.name : 'Lumi';
+      const seedEntries = [
+        {q: "What is your name?", a: `My name is ${pname}. I'm a machine learning coding and communications AI bot created by Tortol Studios. I'm here to help you with coding, questions, and conversations.`},
+        {q: "Who are you?", a: `I'm ${pname}, an AI assistant created by Tortol Studios. I specialize in machine learning, coding help, and communications. What can I help you with today?`},
+        {q: "Who created you?", a: `I was created by Tortol Studios. I'm a machine learning-based AI bot designed to help with coding, communications, and learning.`},
+        {q: "What is your purpose?", a: `${pname} (Lumi for short) is a machine self-learning coding and communications bot with the goal of becoming autonomous. I help with code, debugging, learning, and improving over time.`}
+      ];
+
+      let hasAllSeed = seedEntries.every(seed => kb.qa.some(q => q.q.toLowerCase() === seed.q.toLowerCase()));
+      if(!hasAllSeed){
+        for(const seed of seedEntries){
+          const exists = kb.qa.find(q => q.q.toLowerCase() === seed.q.toLowerCase());
+          if(!exists){
+            kb.qa.unshift({...seed, t: Date.now(), createdAt: Date.now(), updatedAt: Date.now(), count: 1, id: 'seed_' + Math.random().toString(36).substr(2,9), user_id: 'system'});
+          }
+        }
+        saveKB(kb);
+        console.log('[Lumi] Seed KB entries initialized for', pname);
+      }
+    }
+
+    // On startup, attempt to load canonical KB via preload IPC (Electron). If found, merge/replace localStorage.
+    (async function syncKBFromHost(){
+      try{
+        const remote = window.lumi;
+        if(remote && typeof remote.loadKnowledge === 'function'){
+          const data = await remote.loadKnowledge();
+          if(data && (data.qa || (Array.isArray(data) && data.length))){
+            try{
+              // prefer canonical file when available - merge with existing local KB
+              const local = loadKB();
+              // simple merge: prepend canonical entries not present locally (by id or q)
+              const existing = new Set((local.qa||[]).map(e=> (e.id||'') + '|' + (e.q||'') ));
+              const incoming = (data.qa && Array.isArray(data.qa)) ? data.qa : (Array.isArray(data) ? data : []);
+              for(const it of incoming){ const key = (it.id||'') + '|' + (it.q||''); if(!existing.has(key)){ local.qa.unshift(it); existing.add(key); } }
+              saveKB(local);
+            }catch(_){ try{ localStorage.setItem(KB_KEY, JSON.stringify(data)); updateScore(); }catch(__){} }
+          }
+        }
+      }catch(_){ }
+    })();
+
+    /* Settings helpers */
+    const SETTINGS_KEY = 'lumi_settings_v1';
+    function defaultSettings(){ return {feedbackEnabled:true, autoTrain:false, spinOnOpen:false, autoPersona:false}; }
+    function loadSettings(){ try{ return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || defaultSettings(); }catch(e){ return defaultSettings(); } }
+    function saveSettings(s){ localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); }
+
+    /* Migration: copy old codelumi_* keys to lumi_* on first run */
+    function migrateOldLocalStorage(){
+      try{
+        const flag = 'lumi_migrated_v1';
+        if(localStorage.getItem(flag)) return;
+        const map = {
+          'codelumi_conv_v1':'lumi_conv_v1',
+          'codelumi_kb_v2':'lumi_kb_v2',
+          'codelumi_persona_v1':'lumi_persona_v1',
+          'codelumi_settings_v1':'lumi_settings_v1',
+          'codelumi_model_filename':'lumi_model_filename',
+          'codelumi_feedback_v1':'lumi_feedback_v1',
+          'codelumi3d_pos':'lumi3d_pos'
+        };
+        let migrated=false;
+        for(const oldK in map){ try{ const newK = map[oldK]; const v = localStorage.getItem(oldK); if(v !== null && localStorage.getItem(newK) === null){ localStorage.setItem(newK, v); migrated = true; console.log('[Lumi] Migrated', oldK, '->', newK); } }catch(e){} }
+        if(migrated){ try{ say('Migrated legacy Codelumi data to Lumi keys.'); }catch(e){} }
+        try{ localStorage.setItem(flag, Date.now().toString()); }catch(e){}
+      }catch(e){ console.warn('migrateOldLocalStorage failed', e); }
+    }
+
+    /* Simple token TF vector embedding (TF or TF-IDF using KB corpus). Returns an object map token->weight.
+       Backwards compatible: handles old numeric-array embeddings in cosineSim. */
+    function tokenize(text){ return (text||'').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean); }
+
+    function computeEmbedding(text){
+      const toks = tokenize(text);
+      if(!toks.length) return {};
+      // compute term frequency
+      const tf = Object.create(null);
+      toks.forEach(t=> tf[t] = (tf[t] || 0) + 1);
+      // optional IDF from KB: compute doc frequencies
+      try{
+        const kb = loadKB(); const N = (kb.qa||[]).length || 1;
+        const df = Object.create(null);
+        for(const e of (kb.qa||[])){
+          const seen = Object.create(null);
+          const tks = tokenize((e.q||'') + ' ' + (e.a||''));
+          tks.forEach(t=>{ if(!seen[t]){ df[t] = (df[t]||0)+1; seen[t]=1; } });
+        }
+        // build tf-idf weight vector
+        const vec = Object.create(null);
+        let norm = 0;
+        for(const t in tf){
+          const idf = Math.log(1 + N / (1 + (df[t]||0)));
+          const w = tf[t] * idf;
+          vec[t] = w; norm += w*w;
+        }
+        norm = Math.sqrt(norm) || 1;
+        for(const t in vec) vec[t] = vec[t] / norm;
+        return vec;
+      }catch(e){
+        // fallback to TF normalized
+        const vec = Object.create(null); let norm=0; for(const t in tf){ vec[t] = tf[t]; norm += tf[t]*tf[t]; } norm = Math.sqrt(norm)||1; for(const t in vec) vec[t] = vec[t]/norm; return vec;
+      }
+    }
+
+    function cosineSim(a,b){
+      if(!a || !b) return 0;
+      // old-style numeric arrays
+      if(Array.isArray(a) && Array.isArray(b)){
+        let s=0; const n = Math.min(a.length,b.length);
+        for(let i=0;i<n;i++) s += a[i]*b[i]; return s;
+      }
+      // object maps
+      let s = 0, na = 0, nb = 0;
+      for(const k in a){ const av = a[k]||0; na += av*av; if(b[k]) s += av * b[k]; }
+      for(const k in b){ const bv = b[k]||0; nb += bv*bv; }
+      const denom = Math.sqrt(na) * Math.sqrt(nb) || 1; return s/denom;
+    }
+
+    function updateScore(){ 
+      const kb = loadKB(); 
+      const entries = kb && kb.qa ? kb.qa.length : (Array.isArray(kb) ? kb.length : 0);
+      scoreEl.textContent = 'Knowledge entries: ' + entries;
+      try {
+        if (window.lumi && typeof window.lumi.getMetrics === 'function') {
+          window.lumi.getMetrics().then(m => {
+            if (m && m.ok && (typeof m.totalKB === 'number' || !isNaN(Number(m.totalKB)))) {
+              const total = Number(m.totalKB || 0);
+              scoreEl.textContent = 'Knowledge entries: ' + total;
+            }
+          }).catch(() => {});
+        }
+      } catch (_e) {}
+    }
+
+    // Subscribe to learning events from main so UI updates immediately when KB changes
+    try {
+      if (window.lumi && typeof window.lumi.onLearningEvent === 'function') {
+        window.lumi.onLearningEvent((payload) => {
+          try {
+            if (!payload) return;
+            // refresh displayed KB and metrics when new KB items are added or learning events occur
+            if (payload.type === 'kb-added' || payload.type === 'learned' || payload.type === 'suggestions' || payload.type === 'suggestion') {
+              // attempt to reload canonical KB and update score
+              try { if (window.lumi && typeof window.lumi.loadKnowledge === 'function') { window.lumi.loadKnowledge().then(() => updateScore()).catch(()=>updateScore()); } else updateScore(); } catch(_){ updateScore(); }
+              // also refresh metrics panel
+              try { fetchAndRenderMetrics(); } catch (_){ }
+            }
+          } catch (_e) { }
+        });
+      }
+    } catch (e) { /* ignore subscription errors */ }
+
+    // Metrics panel rendering: total KB, events today, events per hour
+    async function fetchAndRenderMetrics(){
+      try{
+        const metricsEl = document.getElementById('metricsPanel');
+        if(!metricsEl) return;
+        if(window.lumi && typeof window.lumi.getMetrics === 'function'){
+          const res = await window.lumi.getMetrics();
+          if(res && res.ok){
+            const total = document.getElementById('metricsTotal');
+            const events = document.getElementById('metricsEvents');
+            const rate = document.getElementById('metricsRate');
+            if(total) total.textContent = String(res.totalKB || 0);
+            if(events) events.textContent = String(res.eventsToday || 0);
+            if(rate) rate.textContent = String(res.eventsPerHour || 0);
+          }
+        }
+      }catch(e){ console.warn('fetchAndRenderMetrics failed', e); }
+    }
+
+    /* Dialog helper */
+    function showDialog(question, placeholder=''){
+      return new Promise(resolve=>{
+        modalQuestion.textContent = question;
+        modalInput.value = placeholder;
+        try{ modal.showModal(); }catch(e){ modal.style.display='block'; }
+        function onClose(){ const val = modalInput.value; cleanup(); resolve(val||null); }
+        function cleanup(){ try{ modal.close(); }catch(e){ modal.style.display='none'; } modal.removeEventListener('close', onClose); }
+        modal.addEventListener('close', onClose);
+      });
+    }
+
+    /* Say with persona tone */
+    // If caller doesn't provide a timeout, compute one from message length
+    // to keep the bubble readable. Scaling: ~85ms per char, min 8s, max 45s.
+    function say(text, timeout = null, opts={feedback:true}){
+      const p = loadPersona();
+      const settings = loadSettings();
+      const prefix = ''; // keep replies natural (persona applied elsewhere)
+      // show bubble; optionally include inline feedback controls
+      bubble.innerHTML = '';
+      const t = document.createElement('div'); t.textContent = text; bubble.appendChild(t);
+      let up, down, teach;
+      const showFeedback = (opts && typeof opts.feedback !== 'undefined') ? opts.feedback : !!settings.feedbackEnabled;
+      if(showFeedback){
+        const fb = document.createElement('div'); fb.style.marginTop='8px'; fb.style.display='flex'; fb.style.gap='8px'; fb.style.justifyContent='flex-end';
+        up = document.createElement('button'); up.textContent='👍'; up.className='tiny'; up.title='Useful';
+        down = document.createElement('button'); down.textContent='👎'; down.className='tiny'; down.title='Wrong / Teach';
+        teach = document.createElement('button'); teach.textContent='Teach'; teach.className='tiny';
+        fb.appendChild(up); fb.appendChild(down); fb.appendChild(teach);
+        // mark-helpful button (calls main to persist accepted assistant answers)
+        try{
+          const markHelpful = document.createElement('button');
+          markHelpful.textContent = 'Mark helpful';
+          markHelpful.className = 'tiny';
+          markHelpful.title = 'Mark this reply as helpful (save to KB)';
+          markHelpful.style.marginLeft = '6px';
+          markHelpful.onclick = async ()=>{
+            try{
+              const qa = _lastAssistantQA || {q:null,a:null};
+              if(!qa.q || !qa.a){ say('No recent assistant reply to mark.',2000,{feedback:false}); return; }
+              if(window.lumi && typeof window.lumi.logAssistant === 'function'){
+                const res = await window.lumi.logAssistant(qa.q, qa.a, 0.95);
+                try{ console.log('[Renderer] markHelpful result:', res); }catch(_){ }
+                if(res && res.ok) say('Marked helpful — saved to knowledge.',2000,{feedback:false});
+                else say('Failed to save helpful mark.',2000,{feedback:false});
+              } else {
+                addOrUpdateKB(qa.q||'unknown', qa.a||'');
+                say('Saved locally to knowledge.',2000,{feedback:false});
+              }
+            }catch(e){ console.warn('markHelpful failed', e); say('Failed to mark helpful.',2000,{feedback:false}); }
+          };
+          fb.appendChild(markHelpful);
+        }catch(_){ }
+        bubble.appendChild(fb);
+      }
+      // compute default duration when not explicitly provided
+      if (timeout === null || typeof timeout === 'undefined') {
+        try{
+          const cleaned = (text||'').replace(/```[\s\S]*?```/g,'').replace(/\s+/g,' ').trim();
+          const len = Math.max(1, cleaned.length);
+          timeout = Math.min(Math.max(len * 85, 8000), 45000);
+        }catch(e){ timeout = 12000; }
+      }
+
+      bubble.style.display='block';
+      clearTimeout(bubble._t);
+      bubble._t = setTimeout(()=>{ if(!bubble._pinned) bubble.style.display='none'; }, timeout);
+      try{ const pn = (loadPersona && loadPersona().name) || 'Lumi'; console.log('['+pn+']', text); }catch(e){ console.log('[Lumi]', text); }
+      // feedback handlers
+      if(up) up.onclick = ()=>{ try{ recordFeedback('up', text); say('Thanks — I will try to do more like that.',2000,{feedback:false}); }catch(e){ console.warn(e);} };
+      if(down) down.onclick = async ()=>{ try{ const corr = await showDialog('What would be a better answer?',''); if(corr){ // save correction as KB entry
+        const kb = loadKB(); const entry = {q: text, a: corr, t: Date.now()}; try{ entry.embedding = computeEmbedding((entry.q||'') + ' ' + (entry.a||'')); }catch(_){ }
+        kb.qa = kb.qa||[]; kb.qa.push(entry); saveKB(kb); recordFeedback('down', text); say('Thanks — I learned that.',2000,{feedback:false}); } }catch(e){ console.warn(e);} };
+      if(teach) teach.onclick = async ()=>{ try{ const user = await showDialog('Provide the corrected answer to save to Lumi KB:',''); if(user){ const kb = loadKB(); const entry = {q: text, a: user, t: Date.now()}; try{ entry.embedding = computeEmbedding((entry.q||'') + ' ' + (entry.a||'')); }catch(_){ }
+        kb.qa = kb.qa||[]; kb.qa.push(entry); saveKB(kb); say('Saved to knowledge.',2000,{feedback:false}); } }catch(e){ console.warn(e);} };
+    }
+
+    /* basic QA logic (unchanged) */
+    function findAnswer(question){
+      const q = (question||'').trim();
+      if(!q) return null;
+      const kb = loadKB(); const ql = q.toLowerCase();
+      const exact = kb.qa.find(x=>x.q.toLowerCase()===ql);
+      if(exact) return {answer: exact.a, source:'kb', entry: exact};
+      const sub = kb.qa.find(x=> ql.includes(x.q.toLowerCase()) || x.q.toLowerCase().includes(ql));
+      if(sub) return {answer: sub.a, source:'kb', entry: sub};
+      // embedding-based similarity fallback
+      try{
+        const qemb = computeEmbedding(q);
+        let best = null; let bestScore = 0;
+        for(const e of (kb.qa||[])){
+          if(e.embedding){ const sc = cosineSim(qemb, e.embedding); if(sc>bestScore){ bestScore = sc; best = e; } }
+        }
+        if(best && bestScore > 0.6){ return {answer: best.a, source:'kb_sim', score: bestScore, entry: best}; }
+      }catch(e){ console.warn('embedding fallback failed', e); }
+      if(/debug|error|stack|exception/i.test(q)) return {answer:"Try to reproduce with a minimal snippet, inspect console/stack trace, and isolate variables. Paste a snippet and I'll help.", source:'rule'};
+      return {answer:"I may not know that yet. Paste a small code snippet and I'll try to analyze it; if I'm wrong, teach me and I'll remember.", source:'fallback'};
+    }
+
+    /* Local reranker: given a question and candidate replies, score candidates by similarity to question.
+       Returns array sorted descending by score: [{candidate, score}, ...] */
+    function localRerank(question, candidates){
+      try{
+        const qemb = computeEmbedding(question);
+        const scored = (candidates||[]).map(c=>{ const emb = computeEmbedding(c||''); return {candidate: c, score: cosineSim(qemb, emb)}; });
+        scored.sort((a,b)=>b.score - a.score);
+        return scored;
+      }catch(e){ console.warn('rerank failed',e); return (candidates||[]).map(c=>({candidate:c,score:0})); }
+    }
+    window.lumiRerank = localRerank;
+
+    /* Conversation recording */
+    function recordConversation(role,text,meta){
+      try{
+        const conv = JSON.parse(localStorage.getItem('lumi_conv_v1')||'[]');
+        const entry = {role, text, t:Date.now()};
+        if(meta) entry.meta = meta;
+        if(role === 'assistant'){
+          try{ const p = loadPersona(); entry.persona = (meta && meta.persona) || p.name || 'Lumi'; }catch(e){}
+        }
+        conv.push(entry);
+        if(conv.length>2000) conv.splice(0,conv.length-2000);
+        localStorage.setItem('lumi_conv_v1', JSON.stringify(conv));
+
+        // Also persist to main-process file-backed memory store when available
+        try{
+          if(window.lumi && typeof window.lumi.memoryAdd === 'function'){
+            // fire-and-forget; enrich entry with source
+            const storeEntry = Object.assign({}, entry, { source: 'renderer' });
+            try { console.log('[Renderer] emitting signal (memoryAdd):', storeEntry); } catch(_){ }
+            const p = window.lumi.memoryAdd(storeEntry);
+            if(p && typeof p.then === 'function'){ p.then((r)=>{ try{ console.log('[Renderer] memoryAdd result:', r); }catch(_){ } }).catch(()=>{}); }
+          }
+        }catch(e){}
+
+        try{ const s = loadSettings(); if(s && s.autoPersona){ try{ learnPersonaFromConversation(conv); }catch(e){} } }catch(e){}
+      }catch(e){}
+    }
+
+    /* Conversation history UI */
+    function loadConversation(){ try{ return JSON.parse(localStorage.getItem('lumi_conv_v1')||'[]'); }catch(e){ return []; } }
+
+    function saveConversation(conv){ try{ localStorage.setItem('lumi_conv_v1', JSON.stringify(conv)); }catch(e){ console.warn('saveConversation failed', e); } }
+
+    /* Lightweight persona learner: updates persona tone/interests from conversation content.
+       Heuristics: scan recent messages for known tone keywords and interest tokens, and update persona.
+       This intentionally keeps changes minimal and reversible by saving to persona storage. */
+    async function learnPersonaFromConversation(conv){ try{
+      if(!Array.isArray(conv) || !conv.length) return;
+      const recent = conv.slice(-60); // analyze last 60 messages
+      const toneKeywords = ['curious','funny','ambitious','honest','evolving','witty','determined','playful','helpful','thoughtful','serious','friendly'];
+      const interestTokens = ['coding','debug','bugs','gremlins','turtles','python','javascript','refactor','optimization','puns','electricity','learning','autonomy','problem-solving','error','stack','performance'];
+      const toneCounts = Object.create(null);
+      const interestCounts = Object.create(null);
+      for(const t of toneKeywords) toneCounts[t]=0;
+      for(const it of interestTokens) interestCounts[it]=0;
+
+      for(const m of recent){ const text = (m && (m.text||m.content||'')||'').toLowerCase();
+        for(const t of toneKeywords) if(new RegExp('\\b'+t+'\\b').test(text)) toneCounts[t]++;
+        for(const it of interestTokens) if(new RegExp('\\b'+it+'\\b').test(text)) interestCounts[it]++;
+      }
+
+      // Incorporate recent detected signals from file-backed memory (if available)
+      try{
+        if(window.lumi && typeof window.lumi.memoryQuery === 'function'){
+          const sigRes = await window.lumi.memoryQuery('signal', 200);
+          if(sigRes && sigRes.ok && Array.isArray(sigRes.results)){
+            for(const sigEntry of sigRes.results.slice(0,200)){
+              try{
+                const meta = sigEntry.meta || {};
+                const sarr = meta.signals || [];
+                for(const s of sarr){
+                  switch(s.type){
+                    case 'positive_feedback':
+                      toneCounts['friendly'] = (toneCounts['friendly']||0) + 1; toneCounts['helpful'] = (toneCounts['helpful']||0) + 1; break;
+                    case 'negative_feedback':
+                      toneCounts['thoughtful'] = (toneCounts['thoughtful']||0) + 1; break;
+                    case 'manual_edit':
+                      interestCounts['refactor'] = (interestCounts['refactor']||0) + 1; break;
+                    case 'copy_event':
+                      interestCounts['coding'] = (interestCounts['coding']||0) + 1; break;
+                    case 'test_pass':
+                      interestCounts['learning'] = (interestCounts['learning']||0) + 1; break;
+                    case 'test_fail':
+                      interestCounts['debug'] = (interestCounts['debug']||0) + 1; break;
+                    case 'undo':
+                      toneCounts['thoughtful'] = (toneCounts['thoughtful']||0) + 1; break;
+                    case 'approval':
+                      toneCounts['helpful'] = (toneCounts['helpful']||0) + 1; break;
+                    default:
+                      break;
+                  }
+                }
+              }catch(_){ }
+            }
+          }
+        }
+      }catch(_){ }
+
+      // pick top tone words (up to 4)
+      const toneSorted = Object.keys(toneCounts).sort((a,b)=>toneCounts[b]-toneCounts[a]).filter(k=>toneCounts[k]>0);
+      const newTone = toneSorted.slice(0,4).join(' · ') || loadPersona().tone || '';
+
+      // pick top interests (up to 6)
+      const interestSorted = Object.keys(interestCounts).sort((a,b)=>interestCounts[b]-interestCounts[a]).filter(k=>interestCounts[k]>0);
+      const newInterests = interestSorted.slice(0,6).join(', ') || loadPersona().interests || '';
+
+      // update persona (keep same name unless user explicitly sets it)
+      const p = loadPersona(); const updated = Object.assign({}, p, { tone: newTone, interests: newInterests });
+      savePersonaToStorage(updated, { origin: 'auto', note: 'auto-persona-update' });
+      console.log('[Lumi] Persona auto-updated:', updated);
+    }catch(e){ console.warn('learnPersonaFromConversation failed', e); } }
+
+    function renderHistory(){ try{
+      const list = loadConversation() || [];
+      if(!historyList) return;
+      if(!list.length){ historyList.innerHTML = '<div style="color:var(--muted)">No conversation history yet.</div>'; return; }
+      let html = '';
+      for(let i = list.length - 1; i >= 0; i--){ const it = list[i]; const d = new Date(it.t || it.timestamp || Date.now()); const time = d.toLocaleString(); const roleColor = it.role === 'user' ? '#cbd5e1' : (it.role === 'assistant' ? '#a78bfa' : '#94a3b8');
+        const displayRole = (it.role === 'assistant') ? (it.persona || loadPersona().name || 'Lumi') : it.role.toUpperCase();
+        html += `<div style="padding:8px;border-bottom:1px solid rgba(255,255,255,0.03)"><div style="font-size:11px;color:${roleColor};margin-bottom:6px">${escapeHtml(displayRole)} — <span style="color:var(--muted);font-weight:400">${time}</span></div><div style="white-space:pre-wrap;color:#e6eef8">${escapeHtml((it.text||it.content||'').toString())}</div>`;
+        if(it.role === 'assistant'){
+          if(it.feedback){ html += `<div style="margin-top:6px;font-size:12px;color:var(--muted)">Feedback: ${escapeHtml(it.feedback)}</div>`; }
+          else {
+            html += `<div style="margin-top:6px;display:flex;gap:6px;justify-content:flex-end"><button class="tiny hist-up" data-index="${i}">👍</button><button class="tiny hist-down" data-index="${i}">👎</button><button class="tiny hist-teach" data-index="${i}">Teach</button></div>`;
+          }
+        }
+        // If this is a user entry and the following assistant reply exists without feedback,
+        // show quick rate buttons on the question so users can rate missed feedback.
+        if(it.role === 'user'){
+          // find next assistant entry after index i
+          let nextAssistantIndex = null;
+          for(let j = i + 1; j < list.length; j++){ if(list[j] && list[j].role === 'assistant'){ nextAssistantIndex = j; break; } }
+          if(nextAssistantIndex !== null){ const assist = list[nextAssistantIndex]; if(assist && !assist.feedback){ html += `<div style="margin-top:6px;display:flex;gap:6px;justify-content:flex-end"><button class="tiny rate-up" data-assist-index="${nextAssistantIndex}">👍 Reply</button><button class="tiny rate-down" data-assist-index="${nextAssistantIndex}">👎 Reply</button><button class="tiny rate-teach" data-assist-index="${nextAssistantIndex}">Teach Reply</button></div>`; } }
+        }
+        html += `</div>`;
+      }
+      historyList.innerHTML = html;
+    }catch(e){ console.warn('renderHistory failed', e); } }
+
+    // Handle feedback clicks inside history panel via event delegation
+    if (historyList) {
+      historyList.addEventListener('click', async function (ev) {
+        try {
+          const target = ev.target;
+          const btn = (target && target.closest) ? target.closest('button') : null;
+          if (!btn) return;
+
+          // hist-* buttons refer directly to the clicked entry by data-index
+          if (btn.classList.contains('hist-up') || btn.classList.contains('hist-down') || btn.classList.contains('hist-teach')){
+            const idx = parseInt(btn.dataset.index, 10);
+            if (isNaN(idx)) return;
+            const conv = loadConversation();
+            const entry = conv[idx];
+            if (!entry) return;
+
+            if (btn.classList.contains('hist-up')){
+              entry.feedback = 'up'; saveConversation(conv); if(typeof recordFeedback === 'function') recordFeedback('up', entry.text || entry.content || ''); say('Thanks — I will try to do more like that.',2000,{feedback:false}); renderHistory(); return;
+            }
+
+            if (btn.classList.contains('hist-down')){
+              let userEntry = null; for (let j = idx - 1; j >= 0; j--){ if (conv[j] && conv[j].role === 'user'){ userEntry = conv[j]; break; } }
+              const corr = await showDialog('What would be a better answer?','');
+              if (corr){ if(userEntry) addOrUpdateKB(userEntry.text || userEntry.content || '', corr.trim()); else addOrUpdateKB('unknown question', corr.trim()); entry.feedback='down'; saveConversation(conv); say('Thanks — I learned that.',2000,{feedback:false}); renderHistory(); }
+              return;
+            }
+
+              if (btn.classList.contains('hist-teach')){
+              let userEntry = null; for (let j = idx - 1; j >= 0; j--){ if (conv[j] && conv[j].role === 'user'){ userEntry = conv[j]; break; } }
+              const userVal = await showDialog('Provide the corrected answer to save to Lumi KB:',''); if(userVal && userVal.trim()){ addOrUpdateKB(userEntry ? (userEntry.text||userEntry.content||'') : 'unknown question', userVal.trim()); entry.feedback='taught'; saveConversation(conv); say('Saved to knowledge.',2000,{feedback:false}); renderHistory(); }
+              return;
+            }
+          }
+
+          // rate-* buttons reference an assistant entry by data-assist-index
+          if (btn.classList.contains('rate-up') || btn.classList.contains('rate-down') || btn.classList.contains('rate-teach')){
+            const aid = parseInt(btn.dataset.assistIndex, 10);
+            if (isNaN(aid)) return;
+            const conv2 = loadConversation();
+            const assistEntry = conv2[aid];
+            if(!assistEntry) return;
+
+            if (btn.classList.contains('rate-up')){
+              assistEntry.feedback = 'up'; saveConversation(conv2); if(typeof recordFeedback==='function') recordFeedback('up', assistEntry.text || assistEntry.content || ''); say('Thanks — I will try to do more like that.',2000,{feedback:false}); renderHistory(); return;
+            }
+
+            if (btn.classList.contains('rate-down')){
+              let userEntry = null; for(let j=aid-1;j>=0;j--) if(conv2[j] && conv2[j].role === 'user'){ userEntry = conv2[j]; break; }
+              const corr = await showDialog('What would be a better answer?','');
+              if(corr){ if(userEntry) addOrUpdateKB(userEntry.text||userEntry.content||'', corr.trim()); else addOrUpdateKB('unknown question', corr.trim()); assistEntry.feedback = 'down'; saveConversation(conv2); say('Thanks — I learned that.',2000,{feedback:false}); renderHistory(); }
+              return;
+            }
+
+            if (btn.classList.contains('rate-teach')){
+              let userEntry = null; for(let j=aid-1;j>=0;j--) if(conv2[j] && conv2[j].role === 'user'){ userEntry = conv2[j]; break; }
+              const userVal = await showDialog('Provide the corrected answer to save to Lumi KB:',''); if(userVal && userVal.trim()){ addOrUpdateKB(userEntry ? (userEntry.text||userEntry.content||'') : 'unknown question', userVal.trim()); assistEntry.feedback = 'taught'; saveConversation(conv2); say('Saved to knowledge.',2000,{feedback:false}); renderHistory(); }
+              return;
+            }
+          }
+
+        } catch (e) {
+          console.warn('history click handler failed', e);
+        }
+      });
+    }
+
+    function escapeHtml(str){ return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+
+    function showSettingsTab(tab){
+      try{
+        const tabs = ['general','personality','history','memory'];
+        tabs.forEach(t=>{ const el = document.getElementById('settings_tab_' + t); if(el) el.style.display = 'none'; });
+        const sel = document.getElementById('settings_tab_' + tab);
+        if(sel) sel.style.display = 'block';
+        try{ localStorage.setItem('lumi_last_settings_tab', tab); }catch(_){}
+        // Ensure dynamic tabs render their content when shown
+        if(tab === 'history') try{ renderHistory(); }catch(e){}
+        if(tab === 'memory') try{ renderMemory(); }catch(e){};
+        if(tab === 'personality') try{ renderPersonaHistory(); }catch(e){}
+      }catch(e){ console.warn('showSettingsTab failed', e); }
+    }
+
+    if(openHistory) openHistory.addEventListener('click', ()=>{ try{ renderHistory(); showSettingsTab('history'); if(settingsPanel) settingsPanel.style.display='block'; }catch(e){ console.warn(e); } });
+    const openMemory = document.getElementById('openMemory');
+    const memoryList = document.getElementById('memoryList');
+    const memorySearch = document.getElementById('memorySearch');
+    const memorySearchBtn = document.getElementById('memorySearchBtn');
+    const memoryRefreshBtn = document.getElementById('memoryRefreshBtn');
+    const memoryExportBtn = document.getElementById('memoryExportBtn');
+
+    // settings tab buttons
+    const settingsTabGeneral = document.getElementById('settingsTabGeneral');
+    const settingsTabPersonality = document.getElementById('settingsTabPersonality');
+    const settingsTabHistory = document.getElementById('settingsTabHistory');
+    const settingsTabMemory = document.getElementById('settingsTabMemory');
+    if(settingsTabGeneral) settingsTabGeneral.addEventListener('click', ()=> showSettingsTab('general'));
+    if(settingsTabPersonality) settingsTabPersonality.addEventListener('click', ()=> showSettingsTab('personality'));
+    if(settingsTabHistory) settingsTabHistory.addEventListener('click', ()=>{ try{ renderHistory(); }catch(e){}; showSettingsTab('history'); });
+    if(settingsTabMemory) settingsTabMemory.addEventListener('click', ()=>{ try{ renderMemory(); }catch(e){}; showSettingsTab('memory'); });
+
+    async function renderMemory(q){
+      try{
+        if(!memoryList) return;
+        memoryList.innerHTML = '<div style="color:var(--muted)">Loading…</div>';
+        let entries = [];
+        if(window.lumi && typeof window.lumi.memoryQuery === 'function'){
+          if(q && q.trim()){
+            const res = await window.lumi.memoryQuery(q, 200);
+            if(res && res.ok && Array.isArray(res.results)) entries = res.results;
+          } else {
+            const res = await window.lumi.memoryExport();
+            if(res && res.ok && Array.isArray(res.results)) entries = res.results;
+          }
+        } else {
+          // fallback: use local conversation store
+          entries = loadConversation();
+        }
+        if(!entries || !entries.length){ memoryList.innerHTML = '<div style="color:var(--muted)">No memory entries found.</div>'; return; }
+        // render
+        let html = '';
+        for(const e of entries.slice().reverse()){
+          const time = new Date(e.t || e.timestamp || Date.now()).toLocaleString();
+          const role = (e.role || 'mem').toUpperCase();
+          html += `<div style="padding:8px;border-bottom:1px solid rgba(255,255,255,0.03)">`;
+          html += `<div style="font-size:11px;color:var(--muted);margin-bottom:6px">${escapeHtml(role)} — <span style="color:var(--muted);font-weight:400">${escapeHtml(time)}</span></div>`;
+          let bodyText = (e.text||e.content||'')?.toString() || '';
+          // Fallbacks: if no main text, try known meta fields or show raw meta
+          if ((!bodyText || !bodyText.trim()) && e.meta) {
+            try {
+              if (typeof e.meta === 'string') bodyText = String(e.meta);
+              else if (e.meta.feedbackText) bodyText = String(e.meta.feedbackText);
+              else if (e.meta.question) bodyText = `Q: ${String(e.meta.question)}\nA: ${String(e.meta.assistant || '')}`;
+              else bodyText = JSON.stringify(e.meta);
+            } catch (_err) { bodyText = '' + e.meta; }
+          }
+          if (!bodyText || !bodyText.trim()) bodyText = '<no content>';
+          html += `<div style="white-space:pre-wrap;color:#e6eef8">${escapeHtml(bodyText)}</div>`;
+
+          if(e.meta){
+            // Pretty-print known meta fields for readability
+            try{
+              const m = e.meta;
+              const metaParts = [];
+              if(m.type) metaParts.push(`<div><strong>Type:</strong> ${escapeHtml(String(m.type))}</div>`);
+              if(m.feedbackText) metaParts.push(`<div style="margin-top:6px"><strong>Feedback:</strong> <div style=\"white-space:pre-wrap;color:#dbeafe;margin-top:4px;max-height:160px;overflow:auto;padding:6px;border-radius:6px;background:#06101a;border:1px solid rgba(255,255,255,0.02)\">${escapeHtml(String(m.feedbackText)).replace(/\n/g,'<br>')}</div></div>`);
+              if(m.question) metaParts.push(`<div><strong>Question:</strong> ${escapeHtml(String(m.question))}</div>`);
+              if(m.assistant) metaParts.push(`<div><strong>Assistant:</strong> <div style=\"white-space:pre-wrap;color:#e6eef8;margin-top:4px;max-height:140px;overflow:auto;padding:6px;border-radius:6px;background:#07101a;border:1px solid rgba(255,255,255,0.03)\">${escapeHtml(String(m.assistant)).replace(/\n/g,'<br>')}</div></div>`);
+              if(m.signals) metaParts.push(`<div><strong>Signals:</strong> ${escapeHtml(JSON.stringify(m.signals))}</div>`);
+              // fallback to raw JSON if nothing recognized
+              if(metaParts.length === 0) metaParts.push(`<div style="font-size:11px;color:var(--muted)">Meta: ${escapeHtml(JSON.stringify(m))}</div>`);
+              html += `<div style="margin-top:8px;font-size:12px;color:var(--muted)">` + metaParts.join('') + `</div>`;
+            }catch(err){ html += `<div style="margin-top:6px;font-size:11px;color:var(--muted)">Meta: ${escapeHtml(JSON.stringify(e.meta))}</div>`; }
+          }
+
+          html += `</div>`;
+        }
+        memoryList.innerHTML = html;
+      }catch(err){ console.warn('renderMemory failed', err); memoryList.innerHTML = '<div style="color:var(--muted)">Failed to load memory.</div>'; }
+    }
+
+    if(openMemory) openMemory.addEventListener('click', ()=>{ try{ renderMemory(''); showSettingsTab('memory'); if(settingsPanel) settingsPanel.style.display='block'; }catch(e){ console.warn(e); } });
+    // Close handlers for history/memory now hide the respective settings tabs
+    const closeHistoryBtn = document.getElementById('closeHistory');
+    if(closeHistoryBtn) closeHistoryBtn.addEventListener('click', ()=>{ try{ const el = document.getElementById('settings_tab_history'); if(el) el.style.display='none'; }catch(e){} });
+    if(memorySearchBtn) memorySearchBtn.addEventListener('click', ()=>{ try{ renderMemory(memorySearch.value||''); }catch(e){ console.warn(e); } });
+    if(memoryRefreshBtn) memoryRefreshBtn.addEventListener('click', ()=>{ try{ renderMemory(memorySearch.value||''); }catch(e){ console.warn(e); } });
+    if(memoryExportBtn) memoryExportBtn.addEventListener('click', async ()=>{ try{ if(window.lumi && typeof window.lumi.memoryExport === 'function'){ const res = await window.lumi.memoryExport(); if(res && res.ok && Array.isArray(res.results)){ const data = JSON.stringify(res.results,null,2); const blob = new Blob([data],{type:'application/json'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download='lumi_memory.json'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url); say('Memory exported.',2000,{feedback:false}); } else say('No memory to export.',2000,{feedback:false}); } else say('Memory export not available.',2000,{feedback:false}); }catch(e){ console.warn(e); say('Memory export failed.',2000,{feedback:false}); } });
+    // persona history close handler (inside personality tab)
+    (function(){ try{ const phClose = document.getElementById('personaHistoryClose'); if(phClose) phClose.addEventListener('click', ()=>{ try{ const phPanel = document.getElementById('personaHistoryPanel'); if(phPanel) phPanel.style.display='none'; }catch(e){} }); }catch(e){} })();
+    if(exportHistoryBtn) exportHistoryBtn.addEventListener('click', ()=>{ try{ const data = JSON.stringify(loadConversation(), null, 2); const blob = new Blob([data], {type:'application/json'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'lumi_conversation.json'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url); }catch(e){ console.warn(e); } });
+    const exportMemoryBtn = document.getElementById('exportMemory');
+    if(exportMemoryBtn) exportMemoryBtn.addEventListener('click', async ()=>{ try{ if(window.lumi && typeof window.lumi.memoryExport === 'function'){ const res = await window.lumi.memoryExport(); if(res && res.ok && Array.isArray(res.results)){ const data = JSON.stringify(res.results, null, 2); const blob = new Blob([data], {type:'application/json'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'lumi_memory.json'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url); say('Memory exported.',2000,{feedback:false}); } else { say('No memory available to export.',2000,{feedback:false}); } }else{ say('Memory export not available.',2000,{feedback:false}); } }catch(e){ console.warn(e); say('Memory export failed.',2000,{feedback:false}); } });
+    if(clearHistoryBtn) clearHistoryBtn.addEventListener('click', ()=>{ try{ if(!confirm('Clear conversation history? This cannot be undone.')) return; localStorage.removeItem('lumi_conv_v1'); renderHistory(); }catch(e){ console.warn(e); } });
+
+    /* Feedback recording */
+    function recordFeedback(type,text){
+      try{
+        const fb = JSON.parse(localStorage.getItem('lumi_feedback_v1')||'[]');
+        fb.push({type,text,t:Date.now()});
+        if(fb.length>5000) fb.splice(0,fb.length-5000);
+        localStorage.setItem('lumi_feedback_v1', JSON.stringify(fb));
+      }catch(e){ }
+    }
+
+    // augment feedback recording by persisting as a signal into main-process memory
+    try{
+      const _origRecord = recordFeedback;
+      recordFeedback = function(type, text){
+        try{ _origRecord(type, text); }catch(e){}
+        try{
+          if(window.lumi && typeof window.lumi.memoryAdd === 'function'){
+            // attempt to attach conversation context: find last assistant reply and preceding user question
+            try{
+              const conv = loadConversation() || [];
+              let assistEntry = null;
+              let question = null;
+              for (let i = conv.length - 1; i >= 0; i--) {
+                const e = conv[i];
+                if (!e) continue;
+                if (e.role === 'assistant' || e.role === 'system') {
+                  assistEntry = e;
+                  // previous user entry (if any)
+                  if (i - 1 >= 0) {
+                    const prev = conv[i - 1];
+                    if (prev && prev.role === 'user') question = prev.text || prev.content || null;
+                  }
+                  break;
+                }
+              }
+              const entry = { role: 'signal', text: `feedback:${type}`, meta: { feedbackText: text, type, question, assistant: (assistEntry && (assistEntry.text||assistEntry.content)) || null }, t: Date.now(), source: 'renderer-feedback' };
+              window.lumi.memoryAdd(entry).catch && window.lumi.memoryAdd(entry).catch(()=>{});
+            }catch(_){
+              const entry = { role: 'signal', text: `feedback:${type}`, meta: { feedbackText: text, type }, t: Date.now(), source: 'renderer-feedback' };
+              window.lumi.memoryAdd(entry).catch && window.lumi.memoryAdd(entry).catch(()=>{});
+            }
+          }
+        }catch(e){}
+      };
+    }catch(e){}
+
+    /* Ask flow */
+    askBtn.addEventListener('click', ()=> handleQuestion());
+    questionInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter') handleQuestion(); });
+
+    // Say Hi quick button
+    if (speakBtn) speakBtn.addEventListener('click', ()=>{ try{ say('Hi there — what can I do for you?', 2500, {feedback:false}); }catch(e){ console.warn(e); } });
+
+    // animation control hooks (calls into 3D view API)
+    try{
+      codelumiAnimIdle && codelumiAnimIdle.addEventListener('click', ()=>{ try{ window.codelumiAnimations && window.codelumiAnimations.setMode('idle'); say('Animation: idle',2000,{feedback:false}); }catch(e){ console.warn(e); } });
+      codelumiAnimWalk && codelumiAnimWalk.addEventListener('click', ()=>{ try{ if(window.codelumiAnimations){ let mode = null; try{ if(typeof window.codelumiAnimations.getMode === 'function') mode = window.codelumiAnimations.getMode(); }catch(_){ } if(mode === 'walk'){ window.codelumiAnimations.setMode('idle'); say('Animation: idle',2000,{feedback:false}); } else { window.codelumiAnimations.setMode('walk'); say('Animation: walk',2000,{feedback:false}); } } }catch(e){ console.warn(e); } });
+      codelumiAnimWave && codelumiAnimWave.addEventListener('click', ()=>{ try{ if(window.codelumiAnimations){ let mode = null; try{ if(typeof window.codelumiAnimations.getMode === 'function') mode = window.codelumiAnimations.getMode(); }catch(_){ } if(mode === 'wave'){ window.codelumiAnimations.setMode('idle'); say('Animation: idle',2000,{feedback:false}); } else { window.codelumiAnimations.setMode('wave'); say('Animation: wave',2000,{feedback:false}); } } }catch(e){ console.warn(e); } });
+      codelumiAnimSpin && codelumiAnimSpin.addEventListener('click', ()=>{ try{ if(window.codelumiAnimations){ let mode = null; try{ if(typeof window.codelumiAnimations.getMode === 'function') mode = window.codelumiAnimations.getMode(); }catch(_){ } if(mode === 'spin'){ window.codelumiAnimations.setMode('idle'); say('Animation: idle',2000,{feedback:false}); } else { window.codelumiAnimations.setMode('spin'); say('Animation: spin',2000,{feedback:false}); } } }catch(e){ console.warn(e); } });
+      codelumiAnimBounce && codelumiAnimBounce.addEventListener('click', ()=>{ try{ if(window.codelumiAnimations){ let mode = null; try{ if(typeof window.codelumiAnimations.getMode === 'function') mode = window.codelumiAnimations.getMode(); }catch(_){ } if(mode === 'bounce'){ window.codelumiAnimations.setMode('idle'); say('Animation: idle',2000,{feedback:false}); } else { window.codelumiAnimations.setMode('bounce'); say('Animation: bounce',2000,{feedback:false}); } } }catch(e){ console.warn(e); } });
+      // clip/play and procedural slider controls have been removed per settings — no-op listeners
+
+      // rotation toggle
+      // respect saved spinOnOpen setting
+      rotateEnabled = (function(){ try{ return !!loadSettings().spinOnOpen; }catch(e){ return false; } })();
+      try{ if(codelumiToggleRotate) codelumiToggleRotate.textContent = rotateEnabled ? 'Stop Rotate' : 'Resume Rotate'; }catch(_){ }
+      try{
+          codelumiToggleRotate && codelumiToggleRotate.addEventListener('click', ()=>{
+            rotateEnabled = !rotateEnabled;
+            codelumiToggleRotate.textContent = rotateEnabled ? 'Stop Rotate' : 'Resume Rotate';
+            try{ const s = loadSettings(); s.spinOnOpen = !!rotateEnabled; saveSettings(s); const spinEl = document.getElementById('codelumiSpinOnOpen'); if(spinEl) spinEl.checked = !!s.spinOnOpen; }catch(_){ }
+            // If rotation was just disabled while in spin mode, stop spinning immediately using API getter
+            if(!rotateEnabled){
+              try{
+                if(window.codelumiAnimations && typeof window.codelumiAnimations.getMode === 'function'){
+                  const m = window.codelumiAnimations.getMode(); if(m === 'spin'){ window.codelumiAnimations.setMode('idle'); }
+                }
+              }catch(_){ try{ window.codelumiAnimations && window.codelumiAnimations.setMode('idle'); }catch(__){} }
+            }
+            say(rotateEnabled ? 'Rotation enabled' : 'Rotation paused',2000,{feedback:false});
+          });
+      }catch(_){ }
+
+      // bone UI removed — no-op populate to preserve calls from other code
+      function populateBoneSelect(){ try{ if(codelumiBoneSelect) codelumiBoneSelect.innerHTML = '<option value="">(bone tuning removed)</option>'; if(codelumiBoneTree) codelumiBoneTree.style.display = 'none'; }catch(_){ } }
+
+      // bone preview removed
+      function applyBonePreview(){ }
+
+        try{
+        // bone UI event handlers removed; keep auto-breathe hookup only
+        codelumiAutoBreathe && codelumiAutoBreathe.addEventListener('change', ()=>{ try{ autoBreatheEnabled = codelumiAutoBreathe.checked; say(autoBreatheEnabled ? 'Auto-breathe enabled' : 'Auto-breathe disabled',2000,{feedback:false}); }catch(e){ console.warn(e);} });
+      }catch(_){ }
+    }catch(_){ }
+
+    async function handleQuestion(){
+      const q = questionInput.value.trim();
+      if(!q){ say('Please type a question.',2000,{feedback:false}); return; }
+      recordConversation('user', q);
+      showThinking(true);
+      
+      // Check KB first (includes seeded identity answers), then fallback to LLM
+      let reply = '';
+      const kbResult = findAnswer(q);
+      
+      // If KB has a good match (exact, substring, or high similarity > 0.6), use it
+      if(kbResult && kbResult.source !== 'fallback'){
+        reply = kbResult.answer;
+      } else {
+        // Otherwise try LLM, then fallback to KB fallback message
+        try {
+          if(window.lumi && typeof window.lumi.think === 'function'){
+            // attempt retrieval from file-backed memory to augment prompt
+            try{
+              if(window.lumi && typeof window.lumi.memoryQuery === 'function'){
+                const mres = await window.lumi.memoryQuery(q, 6);
+                if(mres && mres.ok && Array.isArray(mres.results) && mres.results.length){
+                  // build brief context from recent memory entries
+                  const ctx = mres.results.slice(0,6).map(r=>`[${r.role||'mem'}] ${ (r.text||'').toString().slice(0,480) }`).join('\n');
+                  const augmented = `Context (from Lumi memory):\n${ctx}\n\nUser question:\n${q}`;
+                  const res = await window.lumi.think(augmented);
+                  reply = res && res.output ? res.output : 'No response received';
+                } else {
+                  const res = await window.lumi.think(q);
+                  reply = res && res.output ? res.output : 'No response received';
+                }
+              } else {
+                const res = await window.lumi.think(q);
+                reply = res && res.output ? res.output : 'No response received';
+              }
+            }catch(memErr){
+              console.warn('memoryQuery failed', memErr);
+              const res = await window.lumi.think(q);
+              reply = res && res.output ? res.output : 'No response received';
+            }
+          } else {
+            reply = kbResult.answer;
+          }
+        } catch(e){
+          console.warn('lumi.think failed:', e);
+          reply = kbResult.answer;
+        }
+      }
+      
+      showThinking(false);
+      // personalize short replies by injecting a gentle prefix for personality
+      const p = loadPersona();
+      const displayReply = (p.tone? '💕 ' : '') + reply;
+      say(displayReply);
+      // record assistant reply with persona metadata so each user sees the persona name they set
+      try{ const p = loadPersona(); recordConversation('assistant', reply, {persona: p.name}); }catch(e){ recordConversation('assistant', reply); }
+      // auto-log assistant answer to main so correct answers are captured for later training
+      try{
+        if(window.lumi && typeof window.lumi.logAssistant === 'function'){
+          try{ window.lumi.logAssistant(q, reply, 0.92).then(r=>{ try{ console.log('[Renderer] logAssistant result:', r); }catch(_){ } }).catch(()=>{}); }catch(_){ }
+        }
+      }catch(_){ }
+      // store last assistant Q/A for the mark-helpful action
+      try{ _lastAssistantQA.q = q; _lastAssistantQA.a = reply; }catch(_){ }
+      questionInput.value='';
+    }
+
+    /* Feedback UI + teach (uses dialog)
+       NOTE: Inline bubble feedback (from `say()`) is used as the single feedback system.
+       Avoid creating a second floating feedback box to prevent duplicate controls. */
+    function showFeedback(question,res){
+      // noop: bubble already contains feedback buttons (👍 👎 Teach).
+      // We still record lightweight metrics or expose hooks here if needed.
+      return;
+    }
+
+    function recordFeedback(q,ok,res){
+      const kb = loadKB();
+      if(res && res.entry){
+        res.entry.count = (res.entry.count||0) + (ok?1:-1);
+        res.entry.lastFeedback = {ok,at:Date.now()};
+        saveKB(kb);
+      }
+    }
+
+    async function promptCorrection(question){
+      const userVal = await showDialog('I was wrong — what is the correct short answer for:\n"' + question + '"','');
+      if(userVal && userVal.trim()){ addOrUpdateKB(question, userVal.trim()); }
+      else say('Okay — you can teach me anytime.',2000,{feedback:false});
+    }
+
+    function addOrUpdateKB(question,answer){
+      const kb = loadKB();
+      const q = question.trim(), a = answer.trim();
+      // compute embedding for the new QA pair
+      let newEmb = null;
+      try{ newEmb = computeEmbedding((q||'') + ' ' + (a||'')); }catch(e){ newEmb = null; }
+      // try to find exact match first
+      const existing = kb.qa.find(x=>x.q.toLowerCase()===q.toLowerCase());
+      if(existing){
+        existing.a = a; existing.updatedAt = Date.now(); existing.count = (existing.count||0)+1;
+        try{ existing.embedding = newEmb || existing.embedding || computeEmbedding((existing.q||'') + ' ' + (existing.a||'')); }catch(_){ }
+      } else {
+        // try to find a semantically similar existing question (embedding similarity)
+        let merged = false;
+        if(newEmb){
+          for(const e of (kb.qa||[])){
+            if(e.embedding){ const sc = cosineSim(newEmb, e.embedding); if(sc > 0.86){ // high similarity -> update
+                e.a = a; e.updatedAt = Date.now(); e.count = (e.count||0)+1; try{ e.embedding = newEmb; }catch(_){} merged = true; break; }
+            }
+          }
+        }
+        if(!merged){ kb.qa.unshift({q,a,createdAt:Date.now(),count:1,embedding:newEmb}); if(kb.qa.length>2000) kb.qa.pop(); }
+      }
+      saveKB(kb); say('Thanks — I learned that.',2000,{feedback:false});
+    }
+
+    /* Code analysis (minimal) */
+    function analyzeCode(code){
+      const trimmed = code.trim();
+      const isJS = /\\b(function|const|let|var|=>|console\\.)/.test(trimmed);
+      const isPython = /\\b(def|import|from|print)\\b/.test(trimmed);
+      const issues=[]; let fixed=code;
+      const stack=[]; const pairs={'(':')','[':']','{':'}'};
+      for(let ch of code){ if('([{'.includes(ch)) stack.push(ch); else if(')]}'.includes(ch)){ const last=stack.pop(); if(!last || pairs[last]!==ch) issues.push('Mismatched bracket: '+ch); } }
+      if(stack.length){ issues.push('Unclosed brackets detected: '+stack.join(' ')); fixed = fixed + '\n' + stack.map(()=>'}').join(''); }
+      if(isJS){
+        fixed = fixed.split('\n').map(line=>{ const t=line.trim(); if(!t) return line; if(t.endsWith(';')||t.endsWith('{')||t.endsWith('}')||t.startsWith('//')||t.includes('=>')) return line; if(/^\\s*(if|for|while|else|switch|case|function)\\b/.test(t)) return line; return line+';'; }).join('\n');
+        fixed = fixed.replace(/\\bvar\\s+/g,'let ');
+      }
+      fixed = fixed.split('\n').map(l=>l.replace(/\\t/g,'  ')).join('\n');
+      return {fixed, issues: issues.length?issues:['No obvious issues detected (I might still be wrong).'], confidence: isJS?0.6:(isPython?0.5:0.4), language: isJS?'javascript':(isPython?'python':'unknown')};
+    }
+
+    analyzeBtn.addEventListener('click', async ()=>{
+      const code = codeInput.value||'';
+      if(!code.trim()){ say('Paste some code first.',2000,{feedback:false}); return; }
+      showThinking(true);
+      await new Promise(r=>setTimeout(r,700));
+      const res = analyzeCode(code);
+      showThinking(false);
+      analysisArea.textContent = 'Language: '+res.language+'\\nConfidence: '+Math.round(res.confidence*100)+'%\\n\\nIssues:\\n- '+res.issues.join('\\n- ')+'\\n\\nSuggested Fixes (preview):\\n'+res.fixed;
+      analysisArea._last = res;
+      recordConversation('user-code', code);
+      recordConversation('lumi-analysis', analysisArea.textContent);
+    });
+
+    formatBtn.addEventListener('click', ()=>{ const code=codeInput.value||''; if(!code.trim()) return; const res=analyzeCode(code); codeInput.value=res.fixed; analysisArea.textContent='Applied basic formatting and fixes. Preview updated.'; });
+    applyFixBtn.addEventListener('click', ()=>{ if(analysisArea._last){ codeInput.value = analysisArea._last.fixed; say('Applied suggested fixes to the editor.',2000,{feedback:false}); } else say('No suggested fix available yet.',2000,{feedback:false}); });
+
+    openCode.addEventListener('click', ()=> codePanel.style.display='block');
+    closeCode.addEventListener('click', ()=> codePanel.style.display='none');
+
+    function showThinking(on){ try{ const n = (loadPersona && loadPersona().name) || 'Lumi'; if(on) bubble.textContent = n + ' is thinking...'; }catch(e){ if(on) bubble.textContent='Lumi is thinking...'; } bubble.style.display = on? 'block':'none'; }
+
+    /* Persona editor events */
+    openSettings.addEventListener('click', ()=>{
+      try{
+        const last = localStorage.getItem('lumi_last_settings_tab') || 'general';
+        showSettingsTab(last);
+      }catch(e){}
+      settingsPanel.style.display='block';
+    });
+    closeSettings.addEventListener('click', ()=> settingsPanel.style.display='none');
+    if (openPersonality) openPersonality.addEventListener('click', ()=>{ try{ showSettingsTab('personality'); if(settingsPanel) settingsPanel.style.display='block'; }catch(e){ console.warn(e); } });
+    if (closePersonality) closePersonality.addEventListener('click', ()=>{ try{ if(settingsPanel) settingsPanel.style.display='none'; }catch(e){} });
+    savePersona.addEventListener('click', ()=>{ const p={name: (personaName.value||'Lumi'), tone: (personaTone.value||'playful · curious · helpful'), interests: (personaInterests.value||'coding,cats')}; savePersonaToStorage(p, {origin:'manual'}); say('Persona saved.',2000,{feedback:false}); });
+    resetPersona.addEventListener('click', ()=>{ localStorage.removeItem(PERSONA_KEY); const p=defaultPersona(); savePersonaToStorage(p, {origin:'manual', note:'reset'}); say('Persona reset.',2000,{feedback:false}); });
+
+    const openPersonaHistory = document.getElementById('openPersonaHistory');
+    const personaHistoryPanel = document.getElementById('personaHistoryPanel');
+    const personaHistoryList = document.getElementById('personaHistoryList');
+    const personaHistoryClose = document.getElementById('personaHistoryClose');
+    const personaHistoryClear = document.getElementById('personaHistoryClear');
+
+    function loadPersonaHistory(){ try{ return JSON.parse(localStorage.getItem(PERSONA_HISTORY_KEY) || '[]'); }catch(e){ return []; } }
+    function renderPersonaHistory(){ try{
+      if(!personaHistoryList) return;
+      const hist = loadPersonaHistory(); if(!hist.length){ personaHistoryList.innerHTML = '<div style="color:var(--muted)">No persona history yet.</div>'; return; }
+      let html=''; for(let i = hist.length-1; i>=0; i--){ const h = hist[i]; const t = new Date(h.t||Date.now()).toLocaleString(); const origin = h.origin || 'manual'; const accepted = h.accepted ? ' (accepted)' : ''; const p = h.persona || {}; html += `<div style="padding:8px;border-bottom:1px solid rgba(255,255,255,0.03)"><div style="font-size:12px;color:var(--muted)">${escapeHtml(origin)} — ${escapeHtml(t)}${accepted}</div><div style="margin-top:6px">Name: <strong>${escapeHtml(p.name||'')}</strong></div><div style="margin-top:4px">Tone: ${escapeHtml(p.tone||'')}</div><div style="margin-top:4px">Interests: ${escapeHtml(p.interests||'')}</div><div style="margin-top:6px;display:flex;gap:6px;justify-content:flex-end"><button class="tiny persona-accept" data-idx="${i}">Accept</button><button class="tiny persona-revert" data-idx="${i}">Revert to</button><button class="tiny persona-reject" data-idx="${i}">Reject</button></div></div>`; }
+      personaHistoryList.innerHTML = html; 
+      // attach handlers
+      const accepts = personaHistoryList.querySelectorAll('.persona-accept'); accepts.forEach(b=> b.addEventListener('click', async (ev)=>{ try{ const idx = parseInt(b.dataset.idx,10); const hist = loadPersonaHistory(); const entry = hist[idx]; if(entry){ entry.accepted = true; localStorage.setItem(PERSONA_HISTORY_KEY, JSON.stringify(hist)); savePersonaToStorage(entry.persona, {origin:'accepted', note:'accepted from history'}); renderPersonaHistory(); say('Persona accepted.',2000,{feedback:false}); } }catch(e){ console.warn(e); } }));
+      const reverts = personaHistoryList.querySelectorAll('.persona-revert'); reverts.forEach(b=> b.addEventListener('click', async (ev)=>{ try{ const idx = parseInt(b.dataset.idx,10); const hist = loadPersonaHistory(); const entry = hist[idx]; if(entry){ savePersonaToStorage(entry.persona, {origin:'revert', note:'reverted from history'}); renderPersonaHistory(); say('Persona reverted.',2000,{feedback:false}); } }catch(e){ console.warn(e); } }));
+      const rejects = personaHistoryList.querySelectorAll('.persona-reject'); rejects.forEach(b=> b.addEventListener('click', async (ev)=>{ try{ const idx = parseInt(b.dataset.idx,10); const hist = loadPersonaHistory(); const entry = hist[idx]; if(entry){ entry.rejected = true; entry.accepted = false; localStorage.setItem(PERSONA_HISTORY_KEY, JSON.stringify(hist)); renderPersonaHistory(); say('Persona rejected.',2000,{feedback:false}); } }catch(e){ console.warn(e); } }));
+    }catch(e){ console.warn('renderPersonaHistory failed', e); } }
+
+    if(openPersonaHistory) openPersonaHistory.addEventListener('click', ()=>{ try{ renderPersonaHistory(); showSettingsTab('personality'); if(settingsPanel) settingsPanel.style.display='block'; if(personaHistoryPanel) personaHistoryPanel.style.display='block'; }catch(e){ console.warn(e); } });
+    if(personaHistoryClose) personaHistoryClose.addEventListener('click', ()=>{ try{ if(personaHistoryPanel) personaHistoryPanel.style.display='none'; }catch(e){} });
+    if(personaHistoryClear) personaHistoryClear.addEventListener('click', ()=>{ try{ if(!confirm('Clear persona history?')) return; localStorage.removeItem(PERSONA_HISTORY_KEY); renderPersonaHistory(); say('Persona history cleared.',2000,{feedback:false}); }catch(e){ console.warn(e); } });
+    
+    // Model filename selector
+    const modelFilenameInput = document.getElementById('modelFilename');
+    const loadModelBtn = document.getElementById('loadModelBtn');
+    
+    // Load saved model preference
+    try {
+      const savedModel = localStorage.getItem('lumi_model_filename');
+      if (savedModel && modelFilenameInput) {
+        modelFilenameInput.value = savedModel;
+      }
+    } catch (e) {}
+    
+    // Load model button handler
+    if (loadModelBtn && modelFilenameInput) {
+      loadModelBtn.addEventListener('click', () => {
+        const filename = (modelFilenameInput.value || '').trim();
+        if (!filename) {
+          say('Please enter a model filename.', 2000, { feedback: false });
+          return;
+        }
+        try {
+          localStorage.setItem('lumi_model_filename', filename);
+          // Try to load immediately if the 3D loader is available
+          try {
+            if (window.codelumiAdmin && typeof window.codelumiAdmin.loadSample === 'function') {
+              window.codelumiAdmin.loadSample(filename);
+              say('Model set to: ' + filename + ' — loaded.', 3000, { feedback: false });
+            } else {
+              say('Model set to: ' + filename + '. Restart the app to load it.', 3000, { feedback: false });
+            }
+          } catch (_e) {
+            say('Model set to: ' + filename + '. Restart the app to load it.', 3000, { feedback: false });
+          }
+        } catch (e) {
+          say('Error saving model preference.', 2000, { feedback: false });
+        }
+      });
+    }
+    
+    // Animations toggle button
+    const toggleAnimationsBtn = document.getElementById('toggleAnimations');
+    const animationsSection = document.getElementById('animationsSection');
+    if(toggleAnimationsBtn && animationsSection) {
+      toggleAnimationsBtn.addEventListener('click', ()=>{ 
+        const isHidden = animationsSection.style.display === 'none';
+        animationsSection.style.display = isHidden ? 'block' : 'none';
+        toggleAnimationsBtn.textContent = isHidden ? 'Hide Animations' : 'Animations';
+      });
+    }
+
+    // load & bind global settings
+    try{
+      const s = loadSettings();
+      const fbEl = codelumiFeedbackToggle || document.getElementById('lumiFeedbackToggle') || document.getElementById('codelumiFeedbackToggle'); if(fbEl){ fbEl.checked = !!s.feedbackEnabled; fbEl.addEventListener('change', ()=>{ s.feedbackEnabled = !!fbEl.checked; saveSettings(s); say(s.feedbackEnabled? 'Feedback enabled':'Feedback disabled',1500,{feedback:false}); }); }
+      const atEl = document.getElementById('codelumiAutoTrainToggle'); if(atEl){ atEl.checked = !!s.autoTrain; atEl.addEventListener('change', ()=>{ s.autoTrain = !!atEl.checked; saveSettings(s); say(s.autoTrain? 'Auto-train enabled':'Auto-train disabled',1500,{feedback:false}); }); }
+      const spinEl = document.getElementById('codelumiSpinOnOpen'); if(spinEl){ spinEl.checked = !!s.spinOnOpen; spinEl.addEventListener('change', ()=>{ s.spinOnOpen = !!spinEl.checked; saveSettings(s); say(s.spinOnOpen? 'Will spin on open':'Will not spin on open',1500,{feedback:false}); }); }
+      const apEl = document.getElementById('lumiAutoPersonaToggle'); if(apEl){ apEl.checked = !!s.autoPersona; apEl.addEventListener('change', ()=>{ s.autoPersona = !!apEl.checked; saveSettings(s); say(s.autoPersona? 'Auto‑personalize enabled':'Auto‑personalize disabled',1500,{feedback:false}); }); }
+    }catch(e){ console.warn('settings init failed', e); }
+
+    /* shutdown helpers (same as before) */
+    async function sha256Hex(msg){ const buf=new TextEncoder().encode(msg); const hash = await crypto.subtle.digest('SHA-256', buf); return Array.from(new Uint8Array(hash)).map(b=>b.toString(16).padStart(2,'0')).join(''); }
+    downloadKBBtn?.addEventListener('click', ()=>{ const kb=loadKB(); const blob=new Blob([JSON.stringify(kb,null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='lumi_knowledge.json'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url); });
+
+    document.getElementById('modalCancel').addEventListener('click', ()=>{ try{ modal.close(); }catch(e){ modal.style.display='none'; } });
+    document.getElementById('modalOk').addEventListener('click', ()=>{ try{ modal.close(); }catch(e){ modal.style.display='none'; } });
+
+    // init
+    // migrate legacy localStorage keys if present
+    try{ migrateOldLocalStorage(); }catch(e){ console.warn('migration failed', e); }
+    initializeSeedKB();
+    applyPersona(loadPersona());
+    updateScore();
+    try{ fetchAndRenderMetrics(); setInterval(fetchAndRenderMetrics, 10000); }catch(_){ }
+    // ensure KB entries have embeddings (migrate)
+    try{
+      const kb = loadKB(); let changed = false;
+      kb.qa = kb.qa || [];
+      for(const e of kb.qa){ if(!e.embedding){ try{ e.embedding = computeEmbedding((e.q||'') + ' ' + (e.a||'')); changed = true; }catch(_){} } }
+      if(changed) saveKB(kb);
+    }catch(e){ console.warn('kb migrate failed', e); }
+    window.addEventListener('load', ()=>{ try{ const n = (loadPersona && loadPersona().name) || 'Lumi'; say(n + ' is awake and ready — ask me about code.',4200,{feedback:false}); }catch(e){ say('Lumi is awake and ready — ask me about code.',4200,{feedback:false}); } });
+
+    if(!window.lumi){ window.lumi = { saveKnowledge:(d)=>{ const kb=loadKB(); kb.qa=(d.qa||kb.qa); saveKB(kb); }, loadKnowledge:()=>loadKB(), shutdown:()=>{ const evt=new CustomEvent('lumi-shutdown'); window.dispatchEvent(evt); } }; }
+    window.addEventListener('lumi-shutdown', ()=>{ say('Shutdown requested',2000,{feedback:false}); setTimeout(()=>window.close(),300); });
+
+    // autosave on unload
+    window.addEventListener('beforeunload', ()=>{ try{ localStorage.setItem(KB_KEY, JSON.stringify(loadKB())); }catch(e){} });
+
+    // Learning event toast: show brief notification when main process reports KB merges
+    (function(){
+      const toastId = 'lumiLearningToast';
+      function showLearningToast(msg){
+        try{
+          let t = document.getElementById(toastId);
+          if(!t){ t = document.createElement('div'); t.id = toastId; t.style.position='fixed'; t.style.right='24px'; t.style.top='20px'; t.style.zIndex='1000500'; t.style.background='linear-gradient(180deg,#0f1724,#0b1220)'; t.style.color='#e6eef8'; t.style.padding='10px 14px'; t.style.borderRadius='10px'; t.style.boxShadow='0 12px 40px rgba(0,0,0,0.6)'; t.style.maxWidth='360px'; t.style.fontSize='13px'; t.style.pointerEvents='auto'; document.body.appendChild(t); }
+          t.textContent = '';
+          const strong = document.createElement('div'); strong.style.fontWeight='700'; strong.style.marginBottom='6px'; strong.textContent = '✨ Lumi learned something';
+          const body = document.createElement('div'); body.style.color='var(--muted)'; body.style.fontSize='12px'; body.style.whiteSpace='pre-wrap'; body.textContent = msg || '';
+          t.appendChild(strong); t.appendChild(body);
+          t.style.opacity = '1';
+          clearTimeout(t._hide);
+          t._hide = setTimeout(()=>{ try{ t.style.transition='opacity 360ms ease'; t.style.opacity='0'; setTimeout(()=>{ try{ t.remove(); }catch(_){ } }, 380); }catch(_){ } }, 3000);
+        }catch(e){ console.warn('showLearningToast failed', e); }
+      }
+
+      try{
+        if(window.lumi && typeof window.lumi.onLearningEvent === 'function'){
+          window.lumi.onLearningEvent((ev)=>{
+            try{
+              // ev expected: { ok: true, merged: [...], confidence: 0.9, summary: '...' }
+              if(!ev) return;
+              const conf = (ev.confidence || ev.conf || ev.c) ? Math.round((ev.confidence||ev.conf||ev.c)*100) + '%' : '';
+              const summary = ev.summary || (Array.isArray(ev.merged) ? ev.merged.map(x=> (x.q||x.a||'')).slice(0,3).join(' • ') : '') || '';
+              const msg = (summary ? summary + '\n' : '') + (conf ? 'Confidence: ' + conf : '');
+              console.log('[Renderer] learning event received:', ev);
+              showLearningToast(msg);
+            }catch(e){ console.warn('learning event handler failed', e); }
+          });
+        }
+      }catch(e){ }
+    })();
+
+  });
+  </script>
+  <script type="module">
+  (async ()=>{
+    // Create error overlay and collection
+    const errors = [];
+    function updateErrorBadge(){ const btn = document.getElementById('errBtn'); if(!btn) return; btn.textContent = `Errors (${errors.length})`; }
+    function showErrorOverlay(){ let o = document.getElementById('errOverlay'); if(!o){ o = document.createElement('div'); o.id='errOverlay'; o.style.position='fixed'; o.style.right='12px'; o.style.bottom='60px'; o.style.width='420px'; o.style.maxHeight='60vh'; o.style.overflow='auto'; o.style.background='rgba(0,0,0,0.9)'; o.style.color='#fff'; o.style.padding='10px'; o.style.zIndex='1000000'; o.style.borderRadius='8px'; o.style.fontSize='12px'; document.body.appendChild(o); }
+      o.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><strong>Console Errors</strong><button id="errClose" style="background:#222;color:#fff;border:none;padding:4px 8px;border-radius:6px">Close</button></div>' + errors.map(e=>`<div style="margin-bottom:8px;border-top:1px solid rgba(255,255,255,0.06);padding-top:6px">${e}</div>`).join('');
+      document.getElementById('errClose')?.addEventListener('click', ()=>{ document.getElementById('errOverlay')?.remove(); });
+    }
+    window.addEventListener('error', (ev)=>{ try{ errors.unshift(`${ev.message} — ${ev.filename || ev.filename===undefined?ev.filename:''} :${ev.lineno||''}`); if(errors.length>200) errors.length=200; updateErrorBadge(); }catch(e){} });
+    window.addEventListener('unhandledrejection', (ev)=>{ try{ const msg = (ev.reason && ev.reason.stack) ? ev.reason.stack : String(ev.reason); errors.unshift('UnhandledRejection: '+msg); if(errors.length>200) errors.length=200; updateErrorBadge(); }catch(e){} });
+    // add errors button
+    const errBtn = document.createElement('button'); errBtn.id='errBtn'; errBtn.style.position='fixed'; errBtn.style.left='12px'; errBtn.style.bottom='12px'; errBtn.style.zIndex='1000000'; errBtn.style.background='#ff6b81'; errBtn.style.color='#fff'; errBtn.style.border='none'; errBtn.style.padding='6px 10px'; errBtn.style.borderRadius='8px'; errBtn.style.cursor='pointer'; errBtn.textContent='Errors (0)'; errBtn.addEventListener('click', ()=> showErrorOverlay()); document.body.appendChild(errBtn);
+
+    try{
+      const THREE = await import('three');
+      const m = await import('three/examples/jsm/loaders/GLTFLoader.js');
+      const GLTFLoader = m.GLTFLoader || m.default;
+      const c = await import('three/examples/jsm/controls/OrbitControls.js');
+      const OrbitControls = c.OrbitControls || c.default;
+
+      // hide the SVG face in the UI
+      const avatar = document.getElementById('avatarRoot');
+      if(avatar){ const face = avatar.querySelector('.svg-face'); if(face) face.remove(); avatar.style.background='transparent'; avatar.style.boxShadow='none'; avatar.style.padding='0'; }
+
+      // standalone 3D container - CENTER the model
+      let modelContainer = document.getElementById('codelumi3d');
+      if(!modelContainer){ modelContainer = document.createElement('div'); modelContainer.id = 'codelumi3d'; document.body.appendChild(modelContainer); }
+      // Position 3D model in CENTER-LEFT and UP to avoid chat box overlap
+      Object.assign(modelContainer.style, {position:'fixed', left:'38%', top:'38%', transform:'translate(-50%, -50%)', width:'420px', height:'420px', zIndex:9990, pointerEvents:'auto', background:'transparent'});
+
+      const canvas = document.createElement('canvas'); canvas.id = 'codelumiCanvas'; canvas.width = 768; canvas.height = 768; canvas.style.width='420px'; canvas.style.height='420px'; canvas.style.display='block'; canvas.style.background='transparent';
+      // Allow interacting with the model area — enable pointer events on the canvas and show grab cursor
+      canvas.style.pointerEvents = 'auto';
+      canvas.style.cursor = 'grab';
+      modelContainer.appendChild(canvas);
+
+      // Simple Ctrl/Meta + left-click drag on the canvas to move the model container
+      (function(){
+        const canvasDrag = { active: false, pid: null, startX: 0, startY: 0, origLeft: 0, origTop: 0 };
+
+        function onCanvasPointerDown(e){
+          // require Ctrl or Meta (Cmd) modifier and left button
+          if(!(e.ctrlKey || e.metaKey)) return;
+          if(e.button && e.button !== 0) return;
+          e.preventDefault();
+          const cs = getComputedStyle(modelContainer);
+          canvasDrag.origLeft = parseInt(cs.left || 0, 10);
+          canvasDrag.origTop = parseInt(cs.top || 0, 10);
+          canvasDrag.startX = e.clientX;
+          canvasDrag.startY = e.clientY;
+          canvasDrag.active = true;
+          canvasDrag.pid = e.pointerId;
+          try{ canvas.setPointerCapture && canvas.setPointerCapture(e.pointerId); }catch(_){ }
+          try{ if(controls) controls.enabled = false; }catch(_){ }
+          canvas.style.cursor = 'grabbing';
+        }
+
+        function onCanvasPointerMove(e){
+          if(!canvasDrag.active || e.pointerId !== canvasDrag.pid) return;
+          const dx = e.clientX - canvasDrag.startX;
+          const dy = e.clientY - canvasDrag.startY;
+          modelContainer.style.left = (canvasDrag.origLeft + dx) + 'px';
+          modelContainer.style.top = (canvasDrag.origTop + dy) + 'px';
+        }
+
+        function finishCanvasDrag(e){
+          if(!canvasDrag.active) return;
+          canvasDrag.active = false;
+          try{ canvas.releasePointerCapture && canvas.releasePointerCapture(canvasDrag.pid); }catch(_){ }
+          canvasDrag.pid = null;
+          canvas.style.cursor = 'grab';
+          try{ localStorage.setItem('codelumi3d_pos', JSON.stringify({left: modelContainer.style.left, top: modelContainer.style.top})); }catch(_){ }
+          try{ if(controls) controls.enabled = true; }catch(_){ }
+        }
+
+        canvas.addEventListener('pointerdown', onCanvasPointerDown);
+        window.addEventListener('pointermove', onCanvasPointerMove);
+        canvas.addEventListener('pointerup', finishCanvasDrag);
+        canvas.addEventListener('pointercancel', finishCanvasDrag);
+        canvas.addEventListener('lostpointercapture', finishCanvasDrag);
+      })();
+
+      // Add a small drag handle so users can move the 3D container while the canvas ignores pointer events
+      const dragHandle = document.createElement('div');
+      dragHandle.id = 'codelumi3d_handle';
+      Object.assign(dragHandle.style, {
+        position: 'absolute', top: '6px', right: '6px', width: '28px', height: '28px', borderRadius: '6px',
+        background: 'rgba(0,0,0,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        cursor: 'grab', zIndex: 10, pointerEvents: 'auto'
+      });
+      dragHandle.title = 'Drag Codelumi';
+      modelContainer.style.position = modelContainer.style.position || 'fixed';
+      modelContainer.appendChild(dragHandle);
+
+      // drag handle logic: allows dragging the parent container
+      (function(){
+        let active = false, sx=0, sy=0, ox=0, oy=0;
+        function down(e){ if(e.button && e.button!==0) return; active=true; sx = e.clientX; sy = e.clientY; const cs = getComputedStyle(modelContainer); ox = parseInt(cs.left||0,10); oy = parseInt(cs.top||0,10); dragHandle.setPointerCapture && dragHandle.setPointerCapture(e.pointerId); dragHandle.style.cursor='grabbing'; try{ if(controls) controls.enabled = false; }catch(_){ } e.preventDefault(); }
+        function move(e){ if(!active) return; const dx = e.clientX - sx; const dy = e.clientY - sy; modelContainer.style.left = (ox + dx) + 'px'; modelContainer.style.top = (oy + dy) + 'px'; }
+        function up(e){ if(!active) return; active=false; try{ dragHandle.releasePointerCapture && dragHandle.releasePointerCapture(e.pointerId); }catch(_){} dragHandle.style.cursor='grab'; try{ localStorage.setItem('codelumi3d_pos', JSON.stringify({left:modelContainer.style.left, top:modelContainer.style.top})); }catch(_){ } try{ if(controls) controls.enabled = true; }catch(_){ } }
+        dragHandle.addEventListener('pointerdown', down);
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', up);
+      })();
+
+      // Note: container dragging is handled only via the drag handle above.
+
+      const renderer = new THREE.WebGLRenderer({canvas: canvas, alpha:true}); renderer.setSize(768,768); renderer.setClearColor(0x000000, 0);
+      const scene = new THREE.Scene(); const cam = new THREE.PerspectiveCamera(45,1,0.1,100); cam.position.set(0,0,8);
+      scene.add(new THREE.AmbientLight(0xffffff,0.95));
+      const dir = new THREE.DirectionalLight(0xffffff,1.0); dir.position.set(5,10,7); scene.add(dir);
+
+      // OrbitControls for looking around the model
+      let controls = null;
+      try{
+        controls = new OrbitControls(cam, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.12;
+        controls.enablePan = false;
+        controls.minDistance = 1.5;
+        controls.maxDistance = 30;
+      }catch(_){ controls = null; }
+
+      const loader = new GLTFLoader();
+      let modelRoot = null; let fallbackCube = null; let mixer = null; let gltfAnimations = null; let currentClip = null;
+      let rotateEnabled = false;
+      const clock = new THREE.Clock();
+      let currentMode = 'idle'; let walkPhase = 0; let rotR = 0;
+      let waveNode = null; let waveStart = 0; let waveTargetBone = null;
+      let boneMap = null;
+      // permanent glitch effect (no UI toggle) — subtle wireframe + jitter
+      const glitchConfig = { intervalMin: 4.0, intervalMax: 10.0, durationMin: 0.12, durationMax: 0.45, strength: 0.08 };
+      let glitchState = { nextAt: null, activeUntil: 0, active: false };
+      const _glitchBackup = new Map();
+      function _randBetween(a,b){ return a + Math.random()*(b-a); }
+      function _lerp(a,b,t){ return a + (b-a) * t; }
+      function _scheduleNextGlitch(now){ glitchState.nextAt = now + _randBetween(glitchConfig.intervalMin, glitchConfig.intervalMax); glitchState.active = false; glitchState.activeUntil = 0; }
+      function _startGlitch(now){
+        glitchState.active = true;
+        glitchState.activeUntil = now + _randBetween(glitchConfig.durationMin, glitchConfig.durationMax);
+        glitchState.duration = glitchState.activeUntil - now;
+        // For a stronger "skin removed" effect, swap each mesh's material to a wireframe-only basic material.
+        modelRoot.traverse(o=>{
+          if(o.isMesh || o.isSkinnedMesh){
+            try{
+              if(!_glitchBackup.has(o.uuid)){
+                const mat = o.material || null;
+                _glitchBackup.set(o.uuid, { originalMaterial: mat || null, pos: o.position.clone(), rot: o.rotation.clone() });
+              }
+            }catch(_){ }
+            try{
+              // replace material with a simple white wireframe so "skin" is visually removed
+              if(o.material){
+                try{
+                  if(Array.isArray(o.material)){
+                    o.material = o.material.map((oldMat) => {
+                      if(o.isSkinnedMesh){
+                        return new THREE.MeshStandardMaterial({color:0xffffff, wireframe:true, skinning:true});
+                      } else {
+                        return new THREE.MeshBasicMaterial({color:0xffffff, wireframe:true});
+                      }
+                    });
+                  } else {
+                    if(o.isSkinnedMesh){
+                      o.material = new THREE.MeshStandardMaterial({color:0xffffff, wireframe:true, skinning:true});
+                    } else {
+                      o.material = new THREE.MeshBasicMaterial({color:0xffffff, wireframe:true});
+                    }
+                  }
+                }catch(_){ }
+                try{ 
+                  if(Array.isArray(o.material)) o.material.forEach(m => { try{ m && (m.needsUpdate = true); }catch(_){ } });
+                  else o.material && (o.material.needsUpdate = true);
+                }catch(_){ }
+              }
+            }catch(_){ }
+          }
+        });
+      }
+      function _endGlitch(){
+        glitchState.active = false; glitchState.activeUntil = 0;
+        _glitchBackup.forEach((v, id)=>{
+          try{
+            const obj = modelRoot.getObjectByProperty && modelRoot.getObjectByProperty('uuid', id);
+            if(obj){
+              try{
+                // restore original material reference if we swapped it
+                if(v.originalMaterial !== undefined){
+                  obj.material = v.originalMaterial;
+                  try{ obj.material && (obj.material.needsUpdate = true); }catch(_){ }
+                }
+              }catch(_){ }
+              if(v.pos) try{ obj.position.copy(v.pos); }catch(_){ }
+              if(v.rot) try{ obj.rotation.copy(v.rot); }catch(_){ }
+            }
+          }catch(_){ }
+        });
+        // clear backups after restoring
+        _glitchBackup.clear();
+      }
+
+      // map bones from the GLTF rig so we can apply lightweight procedural overlays
+      function mapBones(root){
+        try{
+          const map = { leftUpperLeg:null, rightUpperLeg:null, leftLowerLeg:null, rightLowerLeg:null, leftUpperArm:null, rightUpperArm:null, leftLowerArm:null, rightLowerArm:null, spine:null, neck:null, head:null, orig: {} };
+          // traverse and map by node names
+          root.traverse(o=>{ try{ if(!(o && o.name)) return; const n = (o.name||'').toLowerCase(); if(!map.leftUpperLeg && /left.*(thigh|upper.*leg|upperleg|hip|l_?thigh)/.test(n)) map.leftUpperLeg = o; if(!map.rightUpperLeg && /right.*(thigh|upper.*leg|upperleg|hip|r_?thigh)/.test(n)) map.rightUpperLeg = o; if(!map.leftLowerLeg && /left.*(calf|shin|lower.*leg|lowerleg)/.test(n)) map.leftLowerLeg = o; if(!map.rightLowerLeg && /right.*(calf|shin|lower.*leg|lowerleg)/.test(n)) map.rightLowerLeg = o; if(!map.leftUpperArm && /left.*(upperarm|upper_arm|arm|l_?arm)/.test(n)) map.leftUpperArm = o; if(!map.rightUpperArm && /right.*(upperarm|upper_arm|arm|r_?arm)/.test(n)) map.rightUpperArm = o; if(!map.leftLowerArm && /left.*(lowerarm|forearm|lower_arm|l_?forearm)/.test(n)) map.leftLowerArm = o; if(!map.rightLowerArm && /right.*(lowerarm|forearm|lower_arm|r_?forearm)/.test(n)) map.rightLowerArm = o; if(!map.spine && /spine|chest|torso|upperbody/.test(n)) map.spine = o; if(!map.neck && /neck/.test(n)) map.neck = o; if(!map.head && /head/.test(n)) map.head = o; }catch(_){ } });
+          // if no bones found via names, try skeleton bones on skinned meshes
+          try{
+            const skinned = [];
+            root.traverse(o=>{ try{ if(o && o.isSkinnedMesh && o.skeleton && o.skeleton.bones && o.skeleton.bones.length) skinned.push(o); }catch(_){ } });
+            for(const sm of skinned){
+              try{
+                for(const b of (sm.skeleton && sm.skeleton.bones) || []){
+                  try{
+                    const n = (b.name||'').toLowerCase();
+                    if(!map.leftUpperLeg && /left.*(thigh|upper.*leg|upperleg|hip|l_?thigh)/.test(n)) map.leftUpperLeg = b;
+                    if(!map.rightUpperLeg && /right.*(thigh|upper.*leg|upperleg|hip|r_?thigh)/.test(n)) map.rightUpperLeg = b;
+                    if(!map.leftLowerLeg && /left.*(calf|shin|lower.*leg|lowerleg)/.test(n)) map.leftLowerLeg = b;
+                    if(!map.rightLowerLeg && /right.*(calf|shin|lower.*leg|lowerleg)/.test(n)) map.rightLowerLeg = b;
+                    if(!map.leftUpperArm && /left.*(upperarm|upper_arm|arm|l_?arm)/.test(n)) map.leftUpperArm = b;
+                    if(!map.rightUpperArm && /right.*(upperarm|upper_arm|arm|r_?arm)/.test(n)) map.rightUpperArm = b;
+                    if(!map.leftLowerArm && /left.*(lowerarm|forearm|lower_arm|l_?forearm)/.test(n)) map.leftLowerArm = b;
+                    if(!map.rightLowerArm && /right.*(lowerarm|forearm|lower_arm|r_?forearm)/.test(n)) map.rightLowerArm = b;
+                    if(!map.spine && /spine|chest|torso|upperbody/.test(n)) map.spine = b;
+                    if(!map.neck && /neck/.test(n)) map.neck = b;
+                    if(!map.head && /head/.test(n)) map.head = b;
+                  }catch(_){ }
+                }
+              }catch(_){ }
+            }
+          }catch(_){ }
+          // capture original rotations (also handle bones from skeletons)
+          Object.keys(map).forEach(k=>{ if(k==='orig') return; try{ const b = map[k]; if(b && b.rotation){ try{ map.orig[k] = b.rotation.clone(); }catch(_){ map.orig[k] = null; } } }catch(_){ } });
+          try{ console.log('mapBones result', { leftUpperArm: map.leftUpperArm && map.leftUpperArm.name, rightUpperArm: map.rightUpperArm && map.rightUpperArm.name }); }catch(_){ }
+          return map;
+        }catch(e){ return null; }
+      }
+
+      function findWaveNode(root){
+        try{
+          const patterns = ['hand','wrist','right_hand','left_hand','arm','upperarm','forearm'];
+          for(const pat of patterns){
+            let found = null;
+            root.traverse(o=>{ try{ if(found) return; const n = (o.name||'').toLowerCase(); if(n && n.indexOf(pat)!==-1) { found = o; } }catch(_){ } });
+            if(found && found !== root) return found;
+          }
+          // fallback: first bone in any SkinnedMesh skeleton
+          let skel = null;
+          root.traverse(o=>{ try{ if(!skel && o.isSkinnedMesh && o.skeleton && o.skeleton.bones && o.skeleton.bones.length) skel = o; }catch(_){ } });
+          if(skel && skel.skeleton && skel.skeleton.bones && skel.skeleton.bones.length){ return skel.skeleton.bones[0]; }
+          // last resort: any bone or skinned mesh (but not the root object)
+          let fallback = null; root.traverse(o=>{ try{ if(!fallback && (o.isBone || o.isSkinnedMesh) && o !== root) fallback = o; }catch(_){ } }); return fallback;
+        }catch(e){ return null; }
+      }
+
+      // procedural settings (modifiable by UI)
+      const proceduralSettings = { walkAmp:1.0, walkSpeed:1.0, waveAmp:1.0, breathAmp:1.0, clipBlend:0.9 };
+      let autoBreatheEnabled = true;
+
+      function startLoop(){ (function loop(){ const dt = clock.getDelta(); if(mixer) try{ mixer.update(dt); }catch(_){ }
+          if(modelRoot){
+            // apply rotation speed modifier for certain modes and apply only when rotateEnabled
+            let appliedRot = rotR;
+            if(currentMode === 'spin') appliedRot = rotR * 6.0;
+            if(rotateEnabled){
+              try{ modelRoot.rotation.y = appliedRot; }catch(_){ }
+            }
+
+            // bone-driven animations when available (with procedural tuning)
+              // Use the model's rig and mixer for bone-driven animation — do not override bone rotations.
+              // Apply only non-invasive positional transforms and waveNode adjustments so the rig controls poses.
+              if(currentMode === 'walk'){
+                walkPhase += dt * 4.0;
+                modelRoot.position.y = Math.abs(Math.sin(walkPhase)) * 0.05 * (proceduralSettings.walkAmp || 1.0);
+                modelRoot.position.x = Math.sin(walkPhase) * 0.3 * (proceduralSettings.walkAmp || 1.0);
+                // apply bone swings when available for more natural gait
+                if(boneMap){
+                  try{
+                    const s = Math.sin(walkPhase);
+                    const thighAmp = 0.6 * (proceduralSettings.walkAmp || 1.0);
+                    const lerpT = 0.22;
+                    function lerp(a,b,t){ return a + (b-a) * t; }
+                    if(boneMap.leftUpperLeg){ const cur = boneMap.leftUpperLeg.rotation.x || 0; const tgt = (boneMap.orig.leftUpperLeg?boneMap.orig.leftUpperLeg.x:0) + s * thighAmp; boneMap.leftUpperLeg.rotation.x = lerp(cur, tgt, lerpT); }
+                    if(boneMap.rightUpperLeg){ const cur = boneMap.rightUpperLeg.rotation.x || 0; const tgt = (boneMap.orig.rightUpperLeg?boneMap.orig.rightUpperLeg.x:0) - s * thighAmp; boneMap.rightUpperLeg.rotation.x = lerp(cur, tgt, lerpT); }
+                    if(boneMap.leftLowerLeg){ const cur = boneMap.leftLowerLeg.rotation.x || 0; const tgt = (boneMap.orig.leftLowerLeg?boneMap.orig.leftLowerLeg.x:0) - Math.max(0, s) * thighAmp * 0.6; boneMap.leftLowerLeg.rotation.x = lerp(cur, tgt, lerpT); }
+                    if(boneMap.rightLowerLeg){ const cur = boneMap.rightLowerLeg.rotation.x || 0; const tgt = (boneMap.orig.rightLowerLeg?boneMap.orig.rightLowerLeg.x:0) + Math.max(0, -s) * thighAmp * 0.6; boneMap.rightLowerLeg.rotation.x = lerp(cur, tgt, lerpT); }
+                    // arms swing opposite to legs (smoothed)
+                    if(boneMap.leftUpperArm){ const cur = boneMap.leftUpperArm.rotation.x || 0; const tgt = (boneMap.orig.leftUpperArm?boneMap.orig.leftUpperArm.x:0) - s * 0.4 * (proceduralSettings.walkAmp || 1.0); boneMap.leftUpperArm.rotation.x = lerp(cur, tgt, lerpT); }
+                    if(boneMap.rightUpperArm){ const cur = boneMap.rightUpperArm.rotation.x || 0; const tgt = (boneMap.orig.rightUpperArm?boneMap.orig.rightUpperArm.x:0) + s * 0.4 * (proceduralSettings.walkAmp || 1.0); boneMap.rightUpperArm.rotation.x = lerp(cur, tgt, lerpT); }
+                  }catch(_){ }
+                }
+              } else if(currentMode === 'bounce'){
+                modelRoot.position.y = Math.abs(Math.sin(rotR * 6.0)) * 0.25;
+                modelRoot.position.x = 0;
+              } else {
+                modelRoot.position.y = Math.sin(rotR*0.6) * 0.02;
+                modelRoot.position.x = 0;
+              }
+              if(currentMode === 'wave'){
+                waveStart += dt;
+                const amp = (proceduralSettings.waveAmp || 1.0);
+                const target = Math.sin(waveStart*8) * 0.9 * amp;
+                // prefer an arm bone from boneMap for waving
+                let waveTargetBone = null;
+                try{ if(boneMap){ waveTargetBone = boneMap.rightUpperArm || boneMap.rightLowerArm || boneMap.leftUpperArm || boneMap.leftLowerArm || null; } }catch(_){ waveTargetBone = null; }
+                if(!waveTargetBone) waveTargetBone = (waveNode && waveNode !== modelRoot) ? waveNode : null;
+                if(waveTargetBone){ try{ const cur = waveTargetBone.rotation.x || 0; waveTargetBone.rotation.x = _lerp(cur, target, 0.36); }catch(_){ } }
+                if(waveStart > 1.6){
+                  currentMode = 'idle'; waveStart = 0;
+                  if(waveTargetBone){ try{ waveTargetBone.rotation.x = _lerp(waveTargetBone.rotation.x||0, 0, 0.6); }catch(_){ } }
+                }
+              }
+              // breathing overlay — small bob without touching bones
+              if(autoBreatheEnabled || currentMode === 'idle' || currentMode === 'clip'){
+                const b = Math.sin(rotR*0.6) * (proceduralSettings.breathAmp || 1.0);
+                modelRoot.position.y += b * 0.01;
+              }
+          }
+          if(fallbackCube) fallbackCube.rotation.y = rotR;
+          // apply rotation only when enabled
+          if(modelRoot){
+            if(rotateEnabled){
+              modelRoot.rotation.y = modelRoot.rotation.y; // keep appliedRot behavior handled above
+            }
+          }
+          // permanent glitch loop: schedule, trigger, and apply short wireframe+jitter bursts
+          try{
+            const now = clock.getElapsedTime();
+            if(glitchState.nextAt === null) _scheduleNextGlitch(now);
+            if(!glitchState.active && now >= glitchState.nextAt){ _startGlitch(now); }
+            if(glitchState.active){
+              const rem = glitchState.activeUntil - now;
+              if(rem <= 0){ try{ _endGlitch(); _scheduleNextGlitch(now); }catch(_){ } }
+              else {
+                // intensity [0..1]
+                const intensity = Math.max(0, Math.min(1, 1 - (rem / (glitchState.duration || 0.0001))));
+                // apply per-mesh jitter and subtle emissive flicker
+                try{
+                  _glitchBackup.forEach((v, id)=>{
+                    try{
+                      const obj = modelRoot.getObjectByProperty && modelRoot.getObjectByProperty('uuid', id);
+                      if(!obj) return;
+                      const s = glitchConfig.strength * (0.4 + Math.random()*0.6) * (0.5 + intensity*0.9);
+                      if(v.pos) obj.position.set(v.pos.x + (Math.random()*2-1)*s, v.pos.y + (Math.random()*2-1)*s, v.pos.z + (Math.random()*2-1)*s);
+                      if(v.rot) obj.rotation.set(v.rot.x + (Math.random()*2-1)*s*0.5, v.rot.y + (Math.random()*2-1)*s*0.5, v.rot.z + (Math.random()*2-1)*s*0.5);
+                      if(obj.material && obj.material.emissive){ try{ if(typeof obj.material.emissive.offsetHSL === 'function') obj.material.emissive.offsetHSL((Math.random()-0.5)*0.4*intensity, 0.05, 0.03); else obj.material.emissive.r = Math.min(1, (obj.material.emissive.r||0) + 0.02*intensity); }catch(_){ } }
+                    }catch(_){ }
+                  });
+                }catch(_){ }
+              }
+            }
+          }catch(_){ }
+
+          renderer.render(scene,cam);
+          // always advance internal phase for procedural overlays
+          rotR += 0.01;
+          requestAnimationFrame(loop); })(); }
+
+      // public animation API
+      window.codelumiAnimations = window.codelumiAnimations || {
+        clips: [],
+        listClips: ()=>{ return window.codelumiAnimations.clips || []; },
+        playClip: (name)=>{
+          try{
+            if(!mixer || !gltfAnimations) return;
+            const clip = (gltfAnimations.find(c=> (c.name||'')===name) || gltfAnimations[0]);
+            // stop previous but keep mixer for blending
+            try{ mixer.stopAllAction(); }catch(_){ }
+            const action = mixer.clipAction(clip);
+            action.reset(); action.play(); currentClip = name; currentMode = 'clip';
+            // remember current action for live weight control
+            window.codelumiAnimations._currentAction = action;
+            // apply initial blend weight (use UI value or proceduralSettings)
+            const blend = (document.getElementById('codelumiClipBlend') && parseFloat(document.getElementById('codelumiClipBlend').value)) || proceduralSettings.clipBlend || 0.9;
+            try{ if(typeof action.setEffectiveWeight === 'function') action.setEffectiveWeight(blend); else action.weight = blend; }catch(_){ try{ action.weight = blend; }catch(_){} }
+          }catch(e){ console.warn('playClip failed', e); }
+        },
+        setMode: (m)=>{ try{ const prev = currentMode; currentMode = m; try{ console.log('codelumi:setMode', m, { mixer: !!mixer, gltfAnimationsCount: (gltfAnimations? gltfAnimations.length:0), modelRootPresent: !!modelRoot, fallbackCubePresent: !!fallbackCube, currentMode }); }catch(_){ }
+          // entering spin should ensure visible rotation regardless of previous rotate setting
+          if(m === 'spin') try{ rotateEnabled = true; if(codelumiToggleRotate) codelumiToggleRotate.textContent = 'Stop Rotate'; }catch(_){ }
+          // idle should reset procedural transforms and restore original bone rotations
+          if(m === 'idle'){
+            try{ // reset positions
+              if(modelRoot){ modelRoot.position.set(0,0,0); try{ modelRoot.rotation.set(0,0,0); }catch(_){ } }
+              // if we are coming from spin, stop visible rotation
+                if(prev === 'spin'){
+                rotateEnabled = false;
+                try{ if(codelumiToggleRotate) codelumiToggleRotate.textContent = 'Resume Rotate'; }catch(_){ }
+                try{ if(modelRoot) modelRoot.rotation.set(0,0,0); }catch(_){ }
+              }
+              if(boneMap){ Object.keys(boneMap).forEach(k=>{ if(k==='orig') return; try{ const b = boneMap[k]; const o = boneMap.orig[k]; if(b && o && b.rotation){ b.rotation.copy(o); } }catch(_){ } }); }
+              // clear wave target
+              waveTargetBone = null;
+            }catch(_){ }
+          }
+          // when entering wave, pick a target bone (prefer right arm) and log it for debugging
+          if(m === 'wave'){
+            try{
+              waveTargetBone = null;
+              if(boneMap){ waveTargetBone = boneMap.rightUpperArm || boneMap.rightLowerArm || boneMap.leftUpperArm || boneMap.leftLowerArm || null; }
+              if(!waveTargetBone) waveTargetBone = (waveNode && waveNode !== modelRoot) ? waveNode : null;
+              try{ console.log('codelumi:waveTarget', { waveTargetBoneName: waveTargetBone && waveTargetBone.name ? waveTargetBone.name : null, hasBoneMap: !!boneMap }); }catch(_){ }
+            }catch(_){ }
+          }
+          if(m !== 'clip' && mixer) { mixer.stopAllAction(); currentClip = null; }
+          // expose a getter for external callers that may attach early
+          try{ window.codelumiAnimations.getMode = function(){ try{ return currentMode; }catch(_){ return null; } }; }catch(_){ }
+        }catch(e){ console.warn('setMode error', e); } },
+        wave: ()=>{ currentMode = 'wave'; },
+        getMode: ()=>{ try{ return currentMode; }catch(_){ return null; } }
+      };
+
+      // prefer an explicitly saved workspace model filename when present
+      const initialModelFilename = (function(){ try{ return localStorage.getItem('lumi_model_filename') || 'Lumi.glb'; }catch(e){ return 'Lumi.glb'; } })();
+      loader.load('assets/models/' + initialModelFilename, (gltf)=>{
+        try{
+          modelRoot = gltf.scene || (gltf.scenes && gltf.scenes[0]);
+          if(!modelRoot) throw new Error('no scene');
+          modelRoot.scale.set(1.6,1.6,1.6);
+          modelRoot.rotation.x = 0;
+          scene.add(modelRoot);
+          try{
+            const box = new THREE.Box3().setFromObject(modelRoot);
+            const center = new THREE.Vector3(); box.getCenter(center);
+            modelRoot.position.sub(center);
+            const size = box.getSize(new THREE.Vector3());
+            const maxDim = Math.max(size.x, size.y, size.z);
+            const fov = cam.fov * (Math.PI/180);
+            const cameraZ = Math.abs(maxDim / 2 / Math.tan(fov/2)) * 1.2;
+            const yOffset = Math.max(0.15, size.y * 0.08);
+            cam.position.set(0, yOffset + cameraZ * 0.05, cameraZ);
+            cam.lookAt(0, Math.max(0, size.y * 0.02), 0);
+            cam.updateProjectionMatrix();
+            if(controls) try{ controls.target.set(0, Math.max(0, size.y * 0.02), 0); controls.update(); }catch(_){ }
+          }catch(_){ }
+
+          // setup animations if present
+          if(gltf.animations && gltf.animations.length){
+            try{ mixer = new THREE.AnimationMixer(modelRoot); mixer.clipAction(gltf.animations[0]).play(); }catch(e){ console.warn('mixer setup failed', e); }
+            // build bone map for procedural overlay
+            try{ boneMap = mapBones(modelRoot); try{ populateBoneSelect && populateBoneSelect(); }catch(_){ } }catch(_){ boneMap = null; }
+            try{
+              gltfAnimations = gltf.animations || null;
+              const names = (gltfAnimations||[]).map((c,i)=> (c && c.name && c.name.length) ? c.name : ('clip' + i));
+              window.codelumiAnimations = window.codelumiAnimations || {};
+              window.codelumiAnimations.clips = names;
+              // populate UI select if present
+              try{ const sel = document.getElementById('codelumiClipSelect'); if(sel){ sel.innerHTML = '<option value="">(select)</option>'; names.forEach(n=>{ const o = document.createElement('option'); o.value = n; o.textContent = n; sel.appendChild(o); }); } }catch(e){}
+            }catch(e){ console.warn('populate clips failed', e); }
+          }
+          waveNode = findWaveNode(modelRoot);
+          startLoop();
+          try{ console.log('Codelumi GLB loaded', { mixer: !!mixer, gltfAnimationsCount: (gltfAnimations? gltfAnimations.length:0), modelRootPresent: !!modelRoot, waveNodePresent: !!waveNode }); }catch(_){ console.log('Codelumi GLB loaded'); }
+        }catch(e){ console.warn('GLB load parse error', e); }
+      }, undefined, (err)=>{
+        console.warn('GLTF load failed', err);
+        // visible renderer warning about missing model path
+        try{
+          const expectedUrl = (function(){ try{ return new URL('assets/models/' + initialModelFilename, location.href).href; }catch(e){ return 'assets/models/' + initialModelFilename; } })();
+          // create or update warning element
+          let warn = document.getElementById('codelumiModelWarning');
+          if(!warn){
+            warn = document.createElement('div');
+            warn.id = 'codelumiModelWarning';
+            warn.style.position = 'absolute';
+            warn.style.right = '12px';
+            warn.style.top = '12px';
+            warn.style.zIndex = '99999';
+            warn.style.background = 'rgba(255,230,230,0.98)';
+            warn.style.color = '#2b2b2b';
+            warn.style.padding = '10px 12px';
+            warn.style.border = '1px solid rgba(200,80,80,0.9)';
+            warn.style.borderRadius = '6px';
+            warn.style.boxShadow = '0 6px 20px rgba(0,0,0,0.2)';
+            warn.style.fontSize = '13px';
+            warn.style.maxWidth = '420px';
+            warn.style.wordBreak = 'break-word';
+            document.body.appendChild(warn);
+          }
+          warn.innerHTML = '<strong>Model not found</strong><div style="margin-top:6px;">Expected: <code style="font-size:12px;color:#111">' + expectedUrl + '</code></div><div style="margin-top:8px;color:#444;font-size:12px">Using fallback cube. Place your GLB at this path and rebuild or copy into <code>dist/assets/models/</code>.</div><div style="margin-top:8px;text-align:right"><button id="codelumiWarnClose" style="background:#e86b6b;border:none;color:#fff;padding:6px 8px;border-radius:4px;cursor:pointer">Dismiss</button></div>';
+          const btn = document.getElementById('codelumiWarnClose');
+          if(btn) btn.onclick = ()=>{ try{ warn.parentNode && warn.parentNode.removeChild(warn); }catch(_){ } };
+        }catch(_){ }
+
+        // fallback visual
+        const geom = new THREE.BoxGeometry(2.0,2.0,2.0); const mat = new THREE.MeshStandardMaterial({color:0xff7ab6, metalness:0.2, roughness:0.6}); fallbackCube = new THREE.Mesh(geom, mat); scene.add(fallbackCube); startLoop();
+        try{ console.log('codelumi:GLTF load failed - using fallbackCube', { fallbackCubePresent: !!fallbackCube, err, requested: initialModelFilename }); }catch(_){ }
+      });
+      // expose a loader to load a sample/model by filename from assets/models/
+      window.codelumiAdmin = window.codelumiAdmin || {};
+      window.codelumiAdmin.loadSample = function(filename){
+        try{
+          const path = 'assets/models/' + filename;
+          // remove previous model
+          try{ if(modelRoot){ scene.remove(modelRoot); modelRoot.traverse && modelRoot.traverse(o=>{ if(o.geometry) o.geometry.dispose && o.geometry.dispose(); if(o.material) { if(Array.isArray(o.material)) o.material.forEach(m=>m.dispose && m.dispose()); else o.material.dispose && o.material.dispose(); } }); } }catch(_){ }
+          mixer = null; gltfAnimations = null; currentClip = null; waveNode = null; modelRoot = null;
+          // load new
+          loader.load(path, (gltf)=>{
+            try{
+              modelRoot = gltf.scene || (gltf.scenes && gltf.scenes[0]); if(!modelRoot) throw new Error('no scene');
+              modelRoot.scale.set(1.6,1.6,1.6); modelRoot.rotation.x = 0; scene.add(modelRoot);
+              try{ const box = new THREE.Box3().setFromObject(modelRoot); const center = new THREE.Vector3(); box.getCenter(center); modelRoot.position.sub(center); }catch(_){ }
+              if(gltf.animations && gltf.animations.length){ try{ mixer = new THREE.AnimationMixer(modelRoot); gltf.animations.forEach((c,i)=>{}); gltfAnimations = gltf.animations; const names = gltfAnimations.map((c,i)=>(c.name&&c.name.length)?c.name:('clip'+i)); window.codelumiAnimations = window.codelumiAnimations || {}; window.codelumiAnimations.clips = names; try{ const sel = document.getElementById('codelumiClipSelect'); if(sel){ sel.innerHTML = '<option value="">(select)</option>'; names.forEach(n=>{ const o = document.createElement('option'); o.value = n; o.textContent = n; sel.appendChild(o); }); } }catch(e){} }catch(e){ console.warn(e); } }
+              boneMap = mapBones(modelRoot);
+              try{ populateBoneSelect && populateBoneSelect(); }catch(_){}
+              waveNode = findWaveNode(modelRoot); say('Sample loaded: ' + filename,2000,{feedback:false});
+            }catch(e){ console.warn('sample parse failed', e); say('Sample load failed'); }
+          }, undefined, (err)=>{ console.warn('sample load failed', err); say('Sample not found: ' + filename,2000,{feedback:false}); });
+        }catch(e){ console.warn('loadSample failed', e); }
+      };
+    }catch(e){ console.warn('3D init failed', e); }
+  })();
+  </script>
+  <script>
+  // Make elements draggable by pointer (mouse/touch)
+  (function(){
+    function makeDraggable(el, handle){
+      if(!el) return;
+      const target = handle || el;
+      target.style.touchAction = 'none';
+      target.style.cursor = 'grab';
+
+      let dragging = false;
+      let startX=0, startY=0, origX=0, origY=0;
+
+      function onPointerDown(e){
+        if(e.button && e.button !== 0) return;
+        // If the pointerdown originated on an interactive control, don't start dragging
+        try{
+          const t = e.target;
+          if(t && (t.closest && t.closest('input,textarea,button,select,a,label,[contenteditable]'))) return;
+        }catch(_){ }
+        const rect = el.getBoundingClientRect();
+        // ensure element has left/top so we can move it; clear right/bottom anchoring
+        const cs = getComputedStyle(el);
+        if(cs.position === 'fixed' || cs.position === 'absolute' || cs.left === 'auto' || (cs.left === '0px' && (cs.right && cs.right !== 'auto'))){
+          el.style.left = rect.left + 'px';
+          el.style.top = rect.top + 'px';
+          el.style.right = 'auto';
+          el.style.bottom = 'auto';
+        }
+        startX = e.clientX;
+        startY = e.clientY;
+        origX = parseInt(getComputedStyle(el).left || 0, 10);
+        origY = parseInt(getComputedStyle(el).top || 0, 10);
+        dragging = true;
+        target.setPointerCapture && target.setPointerCapture(e.pointerId);
+        target.style.cursor = 'grabbing';
+      }
+
+      function onPointerMove(e){
+        if(!dragging) return;
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        el.style.left = (origX + dx) + 'px';
+        el.style.top = (origY + dy) + 'px';
+      }
+
+      function onPointerUp(e){
+        if(!dragging) return;
+        dragging = false;
+        try{ target.releasePointerCapture && target.releasePointerCapture(e.pointerId); }catch(_){}
+        target.style.cursor = 'grab';
+        try{ if(el && el.id){ localStorage.setItem(el.id + '_pos', JSON.stringify({left:el.style.left, top:el.style.top})); } }catch(_){ }
+      }
+
+      target.addEventListener('pointerdown', onPointerDown);
+      window.addEventListener('pointermove', onPointerMove);
+      window.addEventListener('pointerup', onPointerUp);
+    }
+
+    // Attach to avatar, settings, panels and standalone model container and restore saved positions
+    document.addEventListener('DOMContentLoaded', ()=>{
+      const lumi = document.getElementById('lumi');
+      const codelumi3d = document.getElementById('codelumi3d');
+      const settingsPanel = document.getElementById('settingsPanel');
+      const codePanel = document.getElementById('codePanel');
+      const bubbleEl = document.getElementById('bubble');
+      const historyPanel = document.getElementById('historyPanel');
+      const memoryPanel = document.getElementById('memoryPanel');
+      // restore positions if saved
+      try{
+        const kpos = localStorage.getItem('lumi_pos');
+        if(kpos && lumi){ const p = JSON.parse(kpos); if(p.left) lumi.style.left = p.left; if(p.top) lumi.style.top = p.top; }
+      }catch(_){ }
+      try{
+        const mpos = localStorage.getItem('codelumi3d_pos');
+        if(mpos && codelumi3d){ const p = JSON.parse(mpos); if(p.left) codelumi3d.style.left = p.left; if(p.top) codelumi3d.style.top = p.top; }
+      }catch(_){ }
+      try{
+        const spos = localStorage.getItem('settingsPanel_pos');
+        if(spos && settingsPanel){ const p = JSON.parse(spos); if(p.left) settingsPanel.style.left = p.left; if(p.top) settingsPanel.style.top = p.top; settingsPanel.style.position='fixed'; }
+      }catch(_){ }
+      try{
+        const ppanel = document.getElementById('personalityPanel');
+        const ppos = localStorage.getItem('personalityPanel_pos');
+        if(ppos && ppanel){ const q = JSON.parse(ppos); if(q.left) ppanel.style.left = q.left; if(q.top) ppanel.style.top = q.top; ppanel.style.position='fixed'; }
+      }catch(_){ }
+      
+      try{
+        const cpos = localStorage.getItem('codePanel_pos');
+        if(cpos && codePanel){ const p = JSON.parse(cpos); if(p.left) codePanel.style.left = p.left; if(p.top) codePanel.style.top = p.top; codePanel.style.position='fixed'; }
+      }catch(_){ }
+      try{
+        localStorage.removeItem('bubble_pos'); // Reset bubble position to CSS defaults
+      }catch(_){ }
+
+      makeDraggable(lumi);
+      makeDraggable(codelumi3d);
+      makeDraggable(settingsPanel);
+      try{ const ppanel = document.getElementById('personalityPanel'); if(ppanel) makeDraggable(ppanel); }catch(_){ }
+      makeDraggable(codePanel);
+      makeDraggable(bubbleEl);
+    });
+  })();
+  </script>
+</body>
+</html>

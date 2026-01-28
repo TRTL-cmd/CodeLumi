@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "NodeNext",
+    "jsx": "react-jsx",
+    "moduleResolution": "nodenext",
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": false,
+    "rootDir": "src",
+    "skipLibCheck": true,
+    "ignoreDeprecations": "5.0",
+    "outDir": "dist"
+  },
+  "include": ["src/**/*", "types/**/*"]
+}

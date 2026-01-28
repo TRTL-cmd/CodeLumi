@@ -1,0 +1,16 @@
+// Preload can expose safe APIs to renderer
+import { contextBridge, ipcRenderer } from 'electron';
+
+contextBridge.exposeInMainWorld('kira', {
+  ping: () => 'pong',
+  saveKnowledge: async (data: any) => ipcRenderer.invoke('kira-save', data),
+  loadKnowledge: async () => ipcRenderer.invoke('kira-load'),
+  shutdown: async () => ipcRenderer.invoke('kira-shutdown')
+  ,
+  think: async (prompt: string, options: any) => ipcRenderer.invoke('kira-think', prompt, options),
+  chat: async (messages: any[], options: any) => ipcRenderer.invoke('kira-chat', messages, options),
+  startThinkStream: (prompt: string, options: any) => ipcRenderer.send('kira-think-stream-start', prompt, options),
+  onThinkChunk: (cb: (chunk: string) => void) => ipcRenderer.on('kira-think-chunk', (_e, chunk) => cb(chunk)),
+  onThinkDone: (cb: () => void) => ipcRenderer.on('kira-think-done', () => cb()),
+  onThinkError: (cb: (err: string) => void) => ipcRenderer.on('kira-think-error', (_e, err) => cb(err))
+});

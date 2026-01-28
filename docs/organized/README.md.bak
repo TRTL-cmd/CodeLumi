@@ -1,0 +1,13 @@
+**Kira organized docs**
+
+This folder contains an organized, flat copy of key Kira documents for quick access.
+
+- `daily_logs/` — daily log template and entries (KIRA_DAILY_LOG.md)
+- `kira_md/` — consolidated Kira documents (safety charter, roadmap, master docs, runbook)
+- `readmes/` — flat copies of README files from `docs/readmes/` for quick reference
+
+Safety & alignment:
+- The `kira_md/KIRA_SAFETY_CHARTER.md` file is the canonical safety charter. Teams and automation should consult it before any state-changing actions.
+- The Roadmap and Master Documentation files were copied here to make the Neural Link and safety-first priorities visible.
+
+If you want these files moved instead of copied, or want additional README files included, tell me which ones to add or remove.

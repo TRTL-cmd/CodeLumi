@@ -1,0 +1,47 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build / output
+dist/
+dist-electron/
+release/
+build/
+/.parcel-cache/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Python virtualenv
+.venv/
+venv/
+
+# User data and backups (do NOT commit user data)
+userData/
+training/*.backup*
+training/*.bak
+training/*.backup.redact*
+userData/backups/
+
+# IDE
+.vscode/
+.idea/
+
+# Environment
+.env
+.env.local
+
+# Logs
+*.log
+
+# Keep .husky/ committed so hooks are part of the repo when initialized
+.venv/
+node_modules/
+dist/
+.DS_Store
+.env
+build/
+release/
