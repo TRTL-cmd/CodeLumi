@@ -72,3 +72,4 @@ userData/logs/
 userData/*.log
 
 # Privacy tool backups
+*.backup
