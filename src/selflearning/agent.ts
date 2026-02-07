@@ -1,5 +1,6 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { getLumiPaths } from '../core/paths';
 
 type AgentOptions = {
   userDataPath: string;
@@ -79,6 +80,7 @@ export class SelfLearningAgent {
 
   stop() {
     if (this.timer) { clearInterval(this.timer); this.timer = null; }
+    this.paused = true;
     this.running = false;
     return { ok: true };
   }
@@ -196,8 +198,10 @@ export class SelfLearningAgent {
       if (!this.readFullFile && raw.length > 64 * 1024) raw = raw.slice(0, 64 * 1024);
       // sanitize excerpt: redact emails and absolute paths
       const redacted = raw.replace(/([a-zA-Z0-9._%+-]+)@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g, '[REDACTED_EMAIL]')
-            .replace(new RegExp(path.resolve(this.projectRoot).replace(/\\/g,'\\\\'), 'g'), '[PROJECT_ROOT]')
-            .replace(/[A-Z]:\\[\\\S\s]*/g, '[REDACTED_PATH]');
+        .replace(new RegExp(path.resolve(this.projectRoot).replace(/\\/g,'\\\\'), 'g'), '[PROJECT_ROOT]')
+        .replace(/\\\\[^\s\\/]+\\[^\s]+/g, '[REDACTED_PATH]')
+        .replace(/[A-Z]:\\[\\\S\s]*/g, '[REDACTED_PATH]')
+        .replace(/\/(Users|home)\/[^\s/]+\/[^\s]*/g, '/[REDACTED_PATH]');
       const excerpt = redacted.slice(0, 2000);
       const entry = { id: `selflearn_${Date.now()}_${Math.random().toString(16).slice(2,8)}`, path: pth.replace(this.projectRoot, '[PROJECT_ROOT]'), excerpt, mtime, date: new Date().toISOString() };
       // append to audit and store
@@ -218,16 +222,27 @@ export class SelfLearningAgent {
       try {
         const suggestions = this.analyzeFile(raw, pth, path.extname(pth).toLowerCase());
         if (suggestions && suggestions.length) {
-          const sugFile = path.join(this.userDataPath, 'selflearn_suggestions.jsonl');
+          const sugFile = getLumiPaths().stagingFile;
+          await fs.mkdir(path.dirname(sugFile), { recursive: true }).catch(() => {});
           const outs: any[] = [];
           for (const s of suggestions) {
             const maskedPath = pth.replace(this.projectRoot, '[PROJECT_ROOT]');
-            const out = Object.assign({ id: `sug_${Date.now()}_${Math.random().toString(16).slice(2,6)}`, path: maskedPath, date: new Date().toISOString() }, s);
+            const out: any = {
+              id: `sug_${Date.now()}_${Math.random().toString(16).slice(2,6)}`,
+              path: maskedPath,
+              date: new Date().toISOString(),
+              line: (s.line !== undefined) ? s.line : (s.lineno || null),
+              message: s.message || s.suggestion || '[no-message]',
+              severity: s.severity || s.priority || 'info',
+              status: 'pending',
+              rejectedAt: null,
+              rejectionReason: null
+            };
             outs.push(out);
-            await fs.appendFile(sugFile, JSON.stringify(out) + '\n', 'utf8');
+            try { await fs.appendFile(sugFile, JSON.stringify(out) + '\n', 'utf8'); } catch (_e) { }
           }
           if (typeof sendEvent === 'function') {
-            try { sendEvent({ type: 'suggestion', path: pth, suggestions: outs }); } catch (_e) { }
+            try { sendEvent({ type: 'suggestion', path: pth.replace(this.projectRoot, '[PROJECT_ROOT]'), suggestions: outs }); } catch (_e) { }
           }
         }
       } catch (e) { /* suggestion generation shouldn't block learning */ }

@@ -12,20 +12,48 @@ async function loadTrainingKB(): Promise<KBEntry[]> {
 		];
 		const out: KBEntry[] = [];
 		for (const p of candidates) {
-			try {
-				if (!fs.existsSync(p)) continue;
-				const raw = await fs.promises.readFile(p, 'utf8');
-				const parsed = JSON.parse(raw);
-				if (Array.isArray(parsed)) {
-					for (const it of parsed) {
-						if (!it) continue;
-						const entry: KBEntry = { id: it.id || undefined, title: it.title || it.input || undefined, text: (it.output || it.answer || it.text || it.a || it).toString() };
-						out.push(entry);
+					try {
+						if (!fs.existsSync(p)) continue;
+						// Prefer a compact companion file if present
+						const compact = p.replace('.json', '.compact.json');
+						let raw: string | undefined;
+						if (fs.existsSync(compact)) {
+							raw = await fs.promises.readFile(compact, 'utf8');
+						} else {
+							const stat = await fs.promises.stat(p);
+							// If file is large, parse with a reviver to strip embeddings
+							if (stat.size > 2 * 1024 * 1024) {
+								raw = await fs.promises.readFile(p, 'utf8');
+								try {
+									const parsed = JSON.parse(raw, (k, v) => (k === 'embedding' ? undefined : v));
+									if (Array.isArray(parsed)) {
+										for (const it of parsed) {
+											if (!it) continue;
+											const entry: KBEntry = { id: it.id || undefined, title: it.title || it.input || undefined, text: (it.output || it.answer || it.text || it.a || it).toString() };
+											out.push(entry);
+										}
+									}
+									continue;
+								} catch (e) {
+									// fall back to full read
+									raw = await fs.promises.readFile(p, 'utf8');
+								}
+							} else {
+								raw = await fs.promises.readFile(p, 'utf8');
+							}
+						}
+
+						const parsed = JSON.parse(raw as string);
+						if (Array.isArray(parsed)) {
+							for (const it of parsed) {
+								if (!it) continue;
+								const entry: KBEntry = { id: it.id || undefined, title: it.title || it.input || undefined, text: (it.output || it.answer || it.text || it.a || it).toString() };
+								out.push(entry);
+							}
+						}
+					} catch (_e) {
+						// ignore per-file errors
 					}
-				}
-			} catch (_e) {
-				// ignore per-file errors
-			}
 		}
 		return out;
 	} catch (_e) {

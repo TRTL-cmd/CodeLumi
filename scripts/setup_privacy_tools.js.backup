@@ -1,0 +1,12 @@
+#!/usr/bin/env node
+const { execSync } = require('child_process');
+const path = require('path');
+
+console.log('Setting up privacy tools for Lumi (minimal automated steps)');
+try{
+  console.log('Installing husky hooks (if present in package.json)...');
+  execSync('npx husky install', { stdio: 'inherit' });
+  console.log('Adding pre-commit privacy check hook...');
+  execSync('npx husky add .husky/pre-commit "node scripts/precommit_check_paths.js"', { stdio: 'inherit' });
+  console.log('Done. Run `node scripts/privacy_audit.js` to run the audit.');
+}catch(e){ console.error('Setup encountered an error:', e.message); process.exit(1); }

@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 ;(function(){
   const { spawnSync } = require('child_process');
   const path = require('path');

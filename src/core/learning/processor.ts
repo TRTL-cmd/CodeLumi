@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import { BrowserWindow } from 'electron';
 import * as Threat from '../../security/threat_detection';
 import * as Sanitizer from '../../security/sanitizer';
+import { getLumiPaths } from '../paths';
 
 // Attempt to fix common mojibake where UTF-8 bytes were interpreted as latin1
 function fixEncodingAndNormalize(s: string): string {
@@ -176,9 +177,8 @@ export class SignalProcessor {
 
               // QUARANTINE: Needs manual review
               try {
-                const repoTrainingDir = path.join(process.cwd(), 'training');
-                await fs.promises.mkdir(repoTrainingDir, { recursive: true });
-                const stagingFile = path.join(repoTrainingDir, 'staging.jsonl');
+                const stagingFile = getLumiPaths().stagingFile;
+                await fs.promises.mkdir(path.dirname(stagingFile), { recursive: true });
                 const staged = {
                   id: c.id || `staged_${Date.now()}`,
                   q: c.q,
@@ -194,15 +194,22 @@ export class SignalProcessor {
                   const { appendStagingUnique } = await import('../../core/security/staging-utils.js');
                   const res = await appendStagingUnique(stagingFile, staged, { lookbackLines: 200, windowMs: 2 * 60 * 1000 });
                   if (res && res.ok) {
+                    // Already appended to repo staging via appendStagingUnique; do not write sanitized copies to OS userData
                     try {
-                      const selfLearnDir = path.join(process.cwd(), 'userData', 'self-learn');
-                      await fs.promises.mkdir(selfLearnDir, { recursive: true });
-                      const safe = JSON.stringify(staged).replace(new RegExp(process.cwd().replace(/\\/g,'\\\\'),'g'), '[PROJECT_ROOT]').replace(/[A-Za-z]:\\\\[^"\n\r]*/g, '[REDACTED_PATH]');
-                      await fs.promises.appendFile(path.join(selfLearnDir, 'staging.jsonl'), safe + '\n', 'utf8');
+                      const bw = BrowserWindow.getAllWindows()[0];
+                      if (bw && bw.webContents && typeof bw.webContents.send === 'function') {
+                        bw.webContents.send('lumi-learning-event', { type: 'staging-updated', action: 'append' });
+                      }
                     } catch (_e) { }
                   }
                 } catch (_e) {
                   try { await fs.promises.appendFile(stagingFile, JSON.stringify(staged) + '\n', 'utf8'); } catch (_e2) { }
+                  try {
+                    const bw = BrowserWindow.getAllWindows()[0];
+                    if (bw && bw.webContents && typeof bw.webContents.send === 'function') {
+                      bw.webContents.send('lumi-learning-event', { type: 'staging-updated', action: 'append' });
+                    }
+                  } catch (_e3) { }
                 }
               } catch (_e) { }
               continue; // Skip validation for quarantined items
@@ -211,23 +218,29 @@ export class SignalProcessor {
             // If threat detection fails, be conservative and quarantine
             try { console.log('[Quarantine] ⚠️ Error in threat scan, quarantining:', c.q); } catch(_){ }
               try {
-                const repoTrainingDir = path.join(process.cwd(), 'training');
-                await fs.promises.mkdir(repoTrainingDir, { recursive: true });
-                const stagingFile = path.join(repoTrainingDir, 'staging.jsonl');
+                const stagingFile = getLumiPaths().stagingFile;
+                await fs.promises.mkdir(path.dirname(stagingFile), { recursive: true });
                 const staged = Object.assign({}, c, { id: c.id || `staged_${Date.now()}`, quarantined: true, threat: { error: 'scan-failed' }, date: new Date().toISOString() });
                   try {
                   const { appendStagingUnique } = await import('../../core/security/staging-utils.js');
                   const res = await appendStagingUnique(stagingFile, staged, { lookbackLines: 200, windowMs: 2 * 60 * 1000 });
                   if (res && res.ok) {
-                    try {
-                      const selfLearnDir = path.join(process.cwd(), 'userData', 'self-learn');
-                      await fs.promises.mkdir(selfLearnDir, { recursive: true });
-                      const safe = JSON.stringify(staged).replace(new RegExp(process.cwd().replace(/\\/g,'\\\\'),'g'), '[PROJECT_ROOT]').replace(/[A-Za-z]:\\\\[^"\n\r]*/g, '[REDACTED_PATH]');
-                      await fs.promises.appendFile(path.join(selfLearnDir, 'staging.jsonl'), safe + '\n', 'utf8');
-                    } catch (_e) { }
+                      // Already appended to repo staging via appendStagingUnique; skip writing to OS userData
+                        try {
+                          const bw = BrowserWindow.getAllWindows()[0];
+                          if (bw && bw.webContents && typeof bw.webContents.send === 'function') {
+                            bw.webContents.send('lumi-learning-event', { type: 'staging-updated', action: 'append' });
+                          }
+                        } catch (_e) { }
                   }
                 } catch (_e) {
                   try { await fs.promises.appendFile(stagingFile, JSON.stringify(staged) + '\n', 'utf8'); } catch (_e2) { }
+                  try {
+                    const bw = BrowserWindow.getAllWindows()[0];
+                    if (bw && bw.webContents && typeof bw.webContents.send === 'function') {
+                      bw.webContents.send('lumi-learning-event', { type: 'staging-updated', action: 'append' });
+                    }
+                  } catch (_e3) { }
                 }
             } catch (_e) { }
             continue;
@@ -243,8 +256,11 @@ export class SignalProcessor {
   private async updateKB(candidate: Candidate): Promise<void> {
     // Append validated candidate to an audit jsonl and also merge into the repo training KB
     try {
-      const repoTrainingDir = path.join(process.cwd(), 'training');
+      const repoTrainingDir = getLumiPaths().trainingDir;
       await fs.promises.mkdir(repoTrainingDir, { recursive: true });
+
+      const safeQ = Sanitizer.redactPII(Sanitizer.sanitizeText(candidate.q || ''));
+      const safeA = Sanitizer.redactPII(Sanitizer.sanitizeText(candidate.a || ''));
 
       // 1) Append audit line to training/training.jsonl
       try {
@@ -255,7 +271,7 @@ export class SignalProcessor {
 
       // 2) Merge into training/lumi_knowledge.json (array) so searchKB picks it up
       try {
-        const kbFile = path.join(repoTrainingDir, 'lumi_knowledge.json');
+        const kbFile = getLumiPaths().knowledgeBase;
         let arr: any[] = [];
         try {
           const raw = await fs.promises.readFile(kbFile, 'utf8');
@@ -265,8 +281,8 @@ export class SignalProcessor {
 
         const kbEntry = {
           id: candidate.id || `learned_${Date.now()}`,
-          input: candidate.q,
-          output: candidate.a,
+          input: safeQ,
+          output: safeA,
           confidence: candidate.confidence,
           source: candidate.source || 'auto-learning',
           date: candidate.date || new Date().toISOString()

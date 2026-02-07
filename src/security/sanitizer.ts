@@ -34,4 +34,19 @@ export function sanitizeText(s: string, maxLen = 64 * 1024): string {
   return out;
 }
 
-export default { removeControlChars, stripHtmlScripts, neutralizeShell, escapeBackticks, sanitizeText };
+// Redact emails, absolute paths, and other obvious personal identifiers.
+export function redactPII(s: string): string {
+  if (s == null) return '';
+  let out = String(s);
+  // emails
+  out = out.replace(/([a-zA-Z0-9._%+-]+)@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g, '[REDACTED_EMAIL]');
+  // Windows drive paths
+  out = out.replace(/[A-Za-z]:\\[^\n\r]*/g, '[REDACTED_PATH]');
+  // UNC paths
+  out = out.replace(/\\\\[^\\\s]+\\[^\\\s]+(?:\\[^\\\s]+)*/g, '[REDACTED_PATH]');
+  // Common unix-style home paths
+  out = out.replace(/\/(Users|home|var|opt|etc|private|Volumes)\/[\w\-. ]+(?:\/[\w\-. ]+)*/g, '[REDACTED_PATH]');
+  return out;
+}
+
+export default { removeControlChars, stripHtmlScripts, neutralizeShell, escapeBackticks, sanitizeText, redactPII };

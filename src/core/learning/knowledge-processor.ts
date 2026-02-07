@@ -4,6 +4,7 @@ import MemoryStore from '../memory/store';
 import * as crypto from 'crypto';
 import { BrowserWindow } from 'electron';
 import * as Threat from '../../security/threat_detection';
+import { getLumiPaths, LumiPaths } from '../paths';
 
 type Candidate = { q: string; a: string; confidence?: number };
 
@@ -12,15 +13,29 @@ export default class KnowledgeProcessor {
   private kbFile: string;
   private baseDir: string;
   private kbFileInFolder: string;
+  private repoTrainingDir: string;
   private memory: MemoryStore | null;
 
-  constructor(userDataPath: string) {
-    this.userDataPath = userDataPath;
-    this.kbFile = path.join(this.userDataPath, 'lumi_knowledge.json');
-    this.baseDir = path.join(this.userDataPath, 'self-learn');
-    this.kbFileInFolder = path.join(this.baseDir, 'lumi_knowledge.json');
-    // prepare a memory store so learned KB can be also appended to lumi_memory.jsonl
-    try { this.memory = new MemoryStore(this.userDataPath); } catch (_e) { this.memory = null as any; }
+  constructor(userDataPathOrPaths?: string | LumiPaths) {
+    // Support both old API (userDataPath string) and new API (LumiPaths object)
+    if (typeof userDataPathOrPaths === 'string') {
+      // Legacy: keep old behavior for backward compatibility
+      this.userDataPath = userDataPathOrPaths;
+      this.kbFile = path.join(process.cwd(), 'training', 'lumi_knowledge.json');
+      this.baseDir = path.join(this.userDataPath, 'self-learn');
+      this.kbFileInFolder = path.join(process.cwd(), 'training', 'lumi_knowledge.json');
+      this.repoTrainingDir = path.join(process.cwd(), 'training');
+      try { this.memory = new MemoryStore(this.userDataPath); } catch (_e) { this.memory = null as any; }
+    } else {
+      // New: use centralized paths
+      const lumiPaths = userDataPathOrPaths || getLumiPaths();
+      this.userDataPath = lumiPaths.appDataPath;
+      this.kbFile = lumiPaths.knowledgeBase;
+      this.baseDir = path.join(lumiPaths.projectUserDataDir, 'self-learn');
+      this.kbFileInFolder = lumiPaths.knowledgeBase;
+      this.repoTrainingDir = lumiPaths.trainingDir;
+      try { this.memory = new MemoryStore(); } catch (_e) { this.memory = null as any; }
+    }
   }
 
   // sanitize file path for logging to avoid leaking user home or drive-prefixed paths
@@ -96,7 +111,7 @@ export default class KnowledgeProcessor {
       // ensure self-learn folder exists
       try {
         await fs.mkdir(this.baseDir, { recursive: true });
-        console.log(`[KnowledgeProcessor] 📁 Created directory: ${this.baseDir}`);
+        console.log(`[KnowledgeProcessor] 📁 Created directory: ${this.redactPathForLog(this.baseDir)}`);
       } catch (e: any) {
         console.error(`[KnowledgeProcessor] ❌ Failed to create directory:`, e.message);
       }
@@ -110,8 +125,8 @@ export default class KnowledgeProcessor {
         else displayFile = path.basename(normalizedFile);
       } catch (_e) { displayFile = path.basename(normalizedFile); }
       const out: any[] = [];
-      // Load embeddings index (optional). Map key -> numeric[]
-      const embeddingsPath = path.join(this.baseDir, 'embeddings.json');
+      // Load embeddings index (optional). Prefer repo training folder for shared artifacts
+      const embeddingsPath = path.join(this.repoTrainingDir, 'embeddings.json');
       let embeddingsIndex: Record<string, number[]> = {};
       try {
         const rawEmb = await fs.readFile(embeddingsPath, 'utf8');
@@ -180,12 +195,14 @@ export default class KnowledgeProcessor {
         throw e; // Don't continue if main write fails
       }
 
-      // Write a copy into the self-learn folder for curator visibility
+      // Write a copy into the repo training folder for curator/CI visibility
       try {
-        await fs.writeFile(this.kbFileInFolder, JSON.stringify(existing, null, 2), 'utf8');
-        console.log(`[KnowledgeProcessor] ✅ Wrote self-learn KB: ${this.redactPathForLog(this.kbFileInFolder)}`);
+        const repoKb = path.join(this.repoTrainingDir, 'lumi_knowledge.json');
+        await fs.mkdir(this.repoTrainingDir, { recursive: true });
+        await fs.writeFile(repoKb, JSON.stringify(existing, null, 2), 'utf8');
+        console.log(`[KnowledgeProcessor] ✅ Wrote repo training KB: ${this.redactPathForLog(repoKb)}`);
       } catch (e: any) {
-        console.error(`[KnowledgeProcessor] ❌ Failed to write self-learn KB:`, e.message);
+        console.error(`[KnowledgeProcessor] ❌ Failed to write repo training KB:`, e.message);
       }
 
       // Also attempt to write to repo training folder (but sanitize file paths / PII before writing)
@@ -209,7 +226,7 @@ export default class KnowledgeProcessor {
 
       // Write to audit file (selflearn_audit.jsonl)
       try {
-        const auditFile = path.join(this.baseDir, 'selflearn_audit.jsonl');
+        const auditFile = path.join(this.repoTrainingDir, 'selflearn_audit.jsonl');
         for (const it of out) {
           const auditEntry = {
             timestamp: new Date().toISOString(),
@@ -250,7 +267,7 @@ export default class KnowledgeProcessor {
 
       // Append validation records for security auditing
       try {
-        const valDir = path.join(this.userDataPath, 'security');
+        const valDir = path.join(this.repoTrainingDir, 'security');
         await fs.mkdir(valDir, { recursive: true });
         const valFile = path.join(valDir, 'validation.jsonl');
         

@@ -1,0 +1,28 @@
+name: Privacy Audit
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  privacy-audit:
+    name: Run privacy audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run privacy audit
+        run: node scripts/privacy_audit.js
+
+      - name: Fail on findings
+        run: |
+          node -e "const fs=require('fs'); const p='docs/privacy_audit_results.json'; if(!fs.existsSync(p)){console.error('Missing audit results'); process.exit(2);} const r=JSON.parse(fs.readFileSync(p,'utf8')); const has=r.findings.some(f=> (f.emails&&f.emails.length)||(f.windowsAbs&&f.windowsAbs.length)||(f.unc&&f.unc.length)); if(has){ console.error('Privacy audit failed: found emails or absolute paths in tracked files.'); process.exit(1);} console.log('Privacy audit passed — no findings');"

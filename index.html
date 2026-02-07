@@ -17,16 +17,18 @@
     .name{font-weight:700;font-size:1.05rem}
     .tone{color:var(--muted);font-size:.86rem;margin-top:4px}
     .controls{margin-top:10px;display:flex;gap:8px}
-    .qa{margin-top:12px;display:flex;gap:8px}
-    .qa input{flex:1;padding:8px;border-radius:8px;border:1px solid #24303a;background:#07101a;color:#e6eef8}
-    .bubble{position:fixed;left:24%;top:45%;transform:translate(-50%, -50%);max-width:300px;background:#ffffff;color:#0b1220;padding:12px 14px;border-radius:12px;box-shadow:0 8px 20px rgba(2,6,23,.25);white-space:pre-wrap;display:none;box-sizing:border-box;font-size:13px;line-height:1.4;overflow:auto;max-height:220px;z-index:10001;pointer-events:auto}
-    #codePanel{display:none}
+    .qa{margin-top:12px;display:flex;gap:8px;align-items:flex-end}
+    .qa input,.qa textarea{flex:1;padding:8px;border-radius:8px;border:1px solid #24303a;background:#07101a;color:#e6eef8;font-family:Inter,Segoe UI,Arial}
+    .qa textarea{min-height:40px;max-height:240px;resize:none;overflow:auto;line-height:1.25;padding-top:8px;padding-bottom:8px}
+.bubble{position:fixed;left:24%;top:45%;transform:translate(-50%, -50%);max-width:300px;background:#ffffff;color:#0b1220;padding:12px 14px;border-radius:12px;box-shadow:0 8px 20px rgba(2,6,23,.25);white-space:pre-wrap;display:none;box-sizing:border-box;font-size:13px;line-height:1.4;overflow:auto;max-height:220px;z-index:10060;pointer-events:auto}    #codePanel{display:none}
     .code-area{width:100%;height:220px;margin-top:10px;background:#07101a;color:#e6eef8;padding:10px;border-radius:8px;border:1px solid #24303a;font-family:Consolas,monospace;white-space:pre-wrap;overflow:auto}
     .analysis{margin-top:8px;background:#07101a;padding:8px;border-radius:8px;border:1px solid #24303a;color:#e6eef8;max-height:260px;overflow:auto;white-space:pre-wrap}
     dialog{border-radius:8px;padding:12px;border:1px solid #24303a;background:#0b1220;color:#e6eef8}
     .tiny{background:#1f2b36;padding:6px 8px;border-radius:8px;border:none;color:#e6eef8;cursor:pointer}
     button{background:var(--accent);border:none;color:#fff;padding:6px 10px;border-radius:8px;cursor:pointer}
   </style>
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
 </head>
 <body>
   <div id="lumi" title="Drag me">
@@ -57,7 +59,7 @@
         </div>
 
         <div class="qa">
-          <input id="question" placeholder="Ask Lumi about code or paste a snippet..." />
+          <textarea id="question" placeholder="Ask Lumi about code or paste a snippet..." rows="1"></textarea>
           <button id="ask">Ask</button>
         </div>
 
@@ -124,7 +126,7 @@
           <input id="personaName" placeholder="Lumi" />
 
           <label style="margin-top:8px;color:var(--muted)">Tone / Short descriptor</label>
-          <input id="personaTone" placeholder="playful · curious · helpful · thoughtful" />
+          <input id="personaTone" placeholder="(Lumi chooses her tone)" readonly disabled title="Lumi controls her tone" />
 
           <label style="margin-top:8px;color:var(--muted)">Interests (comma separated)</label>
           <input id="personaInterests" placeholder="coding, cats, turtles, learning" />
@@ -170,6 +172,8 @@
         </div>
         <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
           <button id="curatorRefresh" class="tiny">Refresh</button>
+          <button id="curatorArchives" class="tiny">Archives</button>
+          <button id="curatorSuggestions" class="tiny">Suggestions</button>
           <span id="curatorStatus" style="color:var(--muted);margin-left:8px">Loading…</span>
         </div>
         <div id="curatorList" style="margin-top:12px;max-height:420px;overflow:auto;padding:8px;border-radius:8px;border:1px solid #172029;background:#0b1220"></div>
@@ -181,15 +185,26 @@
 
   <div id="codePanel" style="position:fixed;left:24px;bottom:24px;width:720px;display:none;z-index:9999">
     <div style="background:linear-gradient(180deg,#0b1220,#06101a);padding:10px;border-radius:12px;border:1px solid #24303a;box-shadow:0 18px 60px rgba(2,6,23,.6);color:#e6eef8">
-      <div style="display:flex;justify-content:space-between;align-items:center"><strong>Code Editor & Analyzer</strong><div><button id="closeCode" class="tiny">Close</button></div></div>
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div><strong>Code Editor & Analyzer</strong> <span id="codeLangBadge" style="margin-left:8px;font-size:12px;color:var(--muted)"></span></div>
+        <div><button id="closeCode" class="tiny">Close</button></div>
+      </div>
       <textarea id="codeInput" class="code-area" placeholder="// Paste code here (JS/Python/C/C++)"></textarea>
+      <div id="reactEditorMount" style="display:none;margin-top:8px"></div>
       <div style="display:flex;gap:8px;margin-top:8px">
         <button id="analyze">Analyze & Fix</button>
         <button id="format" class="tiny">Format</button>
         <button id="applyFix" class="tiny">Apply Fix</button>
         <button id="downloadCode" class="tiny">Download</button>
+        <button id="saveSnapshot" class="tiny">Save Snapshot</button>
+        <button id="openSnapshots" class="tiny">Snapshots</button>
       </div>
       <div class="analysis" id="analysisArea">Analysis output will appear here.</div>
+      <div id="snapshotPanel" style="display:none;margin-top:8px;background:#06121a;padding:8px;border-radius:8px;border:1px solid #172029;color:#e6eef8">
+        <div style="display:flex;justify-content:space-between;align-items:center"><strong>Snapshots</strong><div><button id="closeSnapshots" class="tiny">Close</button></div></div>
+        <div id="snapshotList" style="margin-top:8px;max-height:180px;overflow:auto;padding:6px;border-radius:6px;background:#07101a;border:1px solid #24303a"></div>
+        <div style="display:flex;gap:8px;margin-top:8px"><button id="saveSnapshotQuick" class="tiny">Save Quick</button><button id="downloadSnapshots" class="tiny">Export</button></div>
+      </div>
     </div>
   </div>
 
@@ -206,6 +221,51 @@
 
   <script>
   document.addEventListener('DOMContentLoaded', function(){
+    // Dynamic loader for compiled React island: SecurityCurator
+    (function ensureSecurityCuratorLoaded() {
+      // If the React mount point exists but the compiled component isn't on window,
+      // dynamically load the compiled bundle and mount when ready.
+      const mountEl = document.querySelector('#curatorReactMount');
+      if (!mountEl) return;
+
+      function tryMount() {
+        try {
+          if (window.SecurityCurator && typeof window.SecurityCurator === 'function') {
+            // mount the React component into the mount element
+            const React = window.React || (window.require && window.require('react'));
+            const ReactDOM = window.ReactDOM || (window.require && window.require('react-dom'));
+            if (React && ReactDOM) {
+              ReactDOM.render(React.createElement(window.SecurityCurator, {}), mountEl);
+              console.info('[SecurityCurator] Mounted after dynamic load');
+              return true;
+            }
+          }
+        } catch (e) {
+          console.warn('[SecurityCurator] mount attempt failed', e);
+        }
+        return false;
+      }
+
+      if (tryMount()) return;
+
+      // If not present, inject script tag to load the compiled bundle.
+      const scriptSrc = './dist/components/security/SecurityCurator.js';
+      if (document.querySelector(`script[src="${scriptSrc}"]`)) {
+        // already loading; poll until available
+        const poll = setInterval(() => { if (tryMount()) clearInterval(poll); }, 250);
+        return;
+      }
+
+      const s = document.createElement('script');
+      s.src = scriptSrc;
+      s.async = true;
+      s.onload = () => {
+        // Give the bundle a moment to initialize then try mount
+        setTimeout(() => { if (!tryMount()) console.warn('[SecurityCurator] loaded but failed to mount'); }, 120);
+      };
+      s.onerror = () => console.error('[SecurityCurator] failed to load', scriptSrc);
+      document.head.appendChild(s);
+    })();
     /* Elements */
     const bubble = document.getElementById('bubble');
     const speakBtn = document.getElementById('speakBtn');
@@ -271,6 +331,11 @@
     const modalOk = document.getElementById('modalOk');
     const modalCancel = document.getElementById('modalCancel');
 
+    // safeAdd available for modal helpers (guards against null elements)
+    function safeAdd(el, ev, cb, opts) {
+      try { if (el && typeof el.addEventListener === 'function') el.addEventListener(ev, cb, opts); else return; } catch (e) { console.warn('safeAdd failed', e); }
+    }
+
     // dialog-based input/confirm helpers (avoid window.prompt/confirm)
     async function askInput(message, defaultValue = '') {
       try {
@@ -286,10 +351,10 @@
           }
           function onOk(e) { e && e.preventDefault && e.preventDefault(); cleanup(); resolve(modalInput.value); }
           function onCancel(e) { e && e.preventDefault && e.preventDefault(); cleanup(); resolve(null); }
-          modalOk.addEventListener('click', onOk);
-          modalCancel.addEventListener('click', onCancel);
+          safeAdd(modalOk, 'click', onOk);
+          safeAdd(modalCancel, 'click', onCancel);
           modalInput.focus();
-          modal.addEventListener('keydown', function onKey(ev){ if(ev.key==='Enter'){ ev.preventDefault(); onOk(); } if(ev.key==='Escape'){ ev.preventDefault(); onCancel(); } }, { once: true });
+          safeAdd(modal, 'keydown', function onKey(ev){ if(ev.key==='Enter'){ ev.preventDefault(); onOk(); } if(ev.key==='Escape'){ ev.preventDefault(); onCancel(); } }, { once: true });
         });
       } catch (e) { return null; }
     }
@@ -304,9 +369,9 @@
           function cleanup() { try { if (typeof modal.close === 'function') modal.close(); else modal.style.display = 'none'; } catch (_) {} modalOk.removeEventListener('click', onOk); modalCancel.removeEventListener('click', onCancel); modalInput.style.display = ''; }
           function onOk(e) { e && e.preventDefault && e.preventDefault(); cleanup(); resolve(true); }
           function onCancel(e) { e && e.preventDefault && e.preventDefault(); cleanup(); resolve(false); }
-          modalOk.addEventListener('click', onOk);
-          modalCancel.addEventListener('click', onCancel);
-          modal.addEventListener('keydown', function onKey(ev){ if(ev.key==='Enter'){ ev.preventDefault(); onOk(); } if(ev.key==='Escape'){ ev.preventDefault(); onCancel(); } }, { once: true });
+          safeAdd(modalOk, 'click', onOk);
+          safeAdd(modalCancel, 'click', onCancel);
+          safeAdd(modal, 'keydown', function onKey(ev){ if(ev.key==='Enter'){ ev.preventDefault(); onOk(); } if(ev.key==='Escape'){ ev.preventDefault(); onCancel(); } }, { once: true });
         });
       } catch (e) { return false; }
     }
@@ -338,6 +403,16 @@
     const curatorStatus = document.getElementById('curatorStatus');
     const closeCurator = document.getElementById('closeCurator');
 
+    // small helper to safely attach listeners to elements that may be missing
+    function safeAdd(el, ev, cb, opts) {
+      try { if (el && typeof el.addEventListener === 'function') el.addEventListener(ev, cb, opts); else return; } catch (e) { console.warn('safeAdd failed', e); }
+    }
+
+    // Escape text for safe insertion into HTML
+    function escapeHtml(text) {
+      try { const d = document.createElement('div'); d.textContent = String(text == null ? '' : text); return d.innerHTML; } catch (e) { return String(text); }
+    }
+
     async function renderCuratorItems() {
       curatorStatus.textContent = 'Loading…';
       try {
@@ -355,16 +430,24 @@
           el.style.border = '1px solid #24303a';
           el.style.padding = '8px';
           el.style.marginBottom = '8px';
-          el.innerHTML = `<div><strong>ID:</strong> ${String(it.id)}</div><div><strong>Q:</strong> ${String(it.q)}</div><div><strong>A:</strong> ${String(it.a)}</div><div style="margin-top:6px"><button data-action="approve">Approve</button><button data-action="reject" style="margin-left:8px">Reject</button><button data-action="delete" style="margin-left:8px">Delete</button></div>`;
+          const idDiv = document.createElement('div'); idDiv.textContent = 'ID: ' + String(it.id);
+          const qDiv = document.createElement('div'); qDiv.textContent = 'Q: ' + String(it.q || '');
+          const aDiv = document.createElement('div'); aDiv.textContent = 'A: ' + String(it.a || '');
+          const actionsDiv = document.createElement('div'); actionsDiv.style.marginTop = '6px';
+          const approveBtn = document.createElement('button'); approveBtn.textContent = 'Approve';
+          const rejectBtn = document.createElement('button'); rejectBtn.textContent = 'Reject'; rejectBtn.style.marginLeft = '8px';
+          const deleteBtn = document.createElement('button'); deleteBtn.textContent = 'Delete'; deleteBtn.style.marginLeft = '8px';
+          actionsDiv.appendChild(approveBtn); actionsDiv.appendChild(rejectBtn); actionsDiv.appendChild(deleteBtn);
+          el.appendChild(idDiv); el.appendChild(qDiv); el.appendChild(aDiv); el.appendChild(actionsDiv);
           curatorList.appendChild(el);
-          el.querySelector('button[data-action="approve"]').addEventListener('click', async ()=>{
+          safeAdd(approveBtn, 'click', async ()=>{
             try{
-              const btn = el.querySelector('button[data-action="approve"]'); if(btn) btn.disabled = true;
+              approveBtn.disabled = true;
               const confirmEdit = await askConfirm('Approve and keep answer as-is? Click Cancel to edit answer before approving.');
               let res;
               if (!confirmEdit) {
                 const edited = await askInput('Edit answer before approving:', it.a || '');
-                if (edited == null) { if(btn) btn.disabled = false; return; }
+                if (edited == null) { approveBtn.disabled = false; return; }
                 res = await (window.lumi && window.lumi.staging ? window.lumi.staging.approve(it.id, edited, 'curator-ui') : { ok: false, error: 'staging-unavailable' });
               } else {
                 res = await (window.lumi && window.lumi.staging ? window.lumi.staging.approve(it.id, undefined, 'curator-ui') : { ok: false, error: 'staging-unavailable' });
@@ -375,36 +458,326 @@
                 say('Approved.', 1400, {feedback:false});
               }
             }catch(e){ console.warn('approve handler failed', e); say('Approve failed',2000,{feedback:false}); }
-            finally { try{ if(el && el.querySelector){ const b = el.querySelector('button[data-action="approve"]'); if(b) b.disabled = false; } }catch(_){ } await renderCuratorItems(); }
+            finally { try{ approveBtn.disabled = false; }catch(_){ } await renderCuratorItems(); }
           });
-          el.querySelector('button[data-action="reject"]').addEventListener('click', async ()=>{
+          safeAdd(rejectBtn, 'click', async ()=>{
             try{
-              const btn = el.querySelector('button[data-action="reject"]'); if(btn) btn.disabled = true;
+              rejectBtn.disabled = true;
               const reason = await askInput('Rejection reason (optional):','manual-review');
               const res = await (window.lumi && window.lumi.staging ? window.lumi.staging.reject(it.id, reason || 'manual-review') : { ok: false, error: 'staging-unavailable' });
               if (!res || !res.ok) say('Reject failed: ' + (res && res.error ? String(res.error) : 'unknown'), 2000, {feedback:false}); else say('Rejected.', 1200, {feedback:false});
             }catch(e){ console.warn('reject handler failed', e); say('Reject failed',2000,{feedback:false}); }
-            finally { try{ if(el && el.querySelector){ const b = el.querySelector('button[data-action="reject"]'); if(b) b.disabled = false; } }catch(_){ } await renderCuratorItems(); }
+            finally { try{ rejectBtn.disabled = false; }catch(_){ } await renderCuratorItems(); }
           });
-          el.querySelector('button[data-action="delete"]').addEventListener('click', async ()=>{
+          safeAdd(deleteBtn, 'click', async ()=>{
             try{
               if (!confirm('Delete this staging item permanently?')) return;
-              const btn = el.querySelector('button[data-action="delete"]'); if(btn) btn.disabled = true;
+              deleteBtn.disabled = true;
               const res = await (window.lumi && window.lumi.staging ? window.lumi.staging.delete(it.id) : { ok: false, error: 'staging-unavailable' });
               if (!res || !res.ok) say('Delete failed: ' + (res && res.error ? String(res.error) : 'unknown'), 2000, {feedback:false}); else say('Deleted.',1200,{feedback:false});
             }catch(e){ console.warn('delete handler failed', e); say('Delete failed',2000,{feedback:false}); }
-            finally { try{ if(el && el.querySelector){ const b = el.querySelector('button[data-action="delete"]'); if(b) b.disabled = false; } }catch(_){ } await renderCuratorItems(); }
+            finally { try{ deleteBtn.disabled = false; }catch(_){ } await renderCuratorItems(); }
           });
         }
-        if (items.length === 0) curatorList.innerHTML = '<div style="color:var(--muted)">No pending items</div>';
+        if (items.length === 0) curatorList.innerHTML = '<div style="color:var(--muted)">No threats detected</div>';
       } catch (e) {
         curatorStatus.textContent = 'Error';
         curatorList.innerHTML = `<div style="color:#f88">${String(e)}</div>`;
       }
     }
 
-    if (openCurator) openCurator.addEventListener('click', ()=>{ curatorPanel.style.display = 'block'; renderCuratorItems(); });
+    if (openCurator) openCurator.addEventListener('click', (ev)=>{ 
+      // Prefer React SecurityCurator when available (mount script will render it).
+      try{ if (window && window.SecurityCurator) { return; } }catch(_){ }
+      curatorPanel.style.display = 'block'; renderCuratorItems();
+    });
     if (curatorRefresh) curatorRefresh.addEventListener('click', ()=> renderCuratorItems());
+    const curatorArchivesBtn = document.getElementById('curatorArchives');
+    async function renderArchiveList(){
+      curatorStatus.textContent = 'Loading archives…';
+      try{
+        const res = await (window.lumi && window.lumi.session ? window.lumi.session.listArchives() : { ok: false });
+        if(!res || !res.ok){ curatorStatus.textContent = 'Archives unavailable'; curatorList.innerHTML = '<div style="color:#f88">Archives unavailable</div>'; return; }
+        const archives = res.archives || [];
+        curatorStatus.textContent = `${archives.length} archives`;
+        curatorList.innerHTML = '';
+        for(const a of archives){
+          const el = document.createElement('div'); el.style.border='1px solid #24303a'; el.style.padding='8px'; el.style.marginBottom='8px';
+          const nameDiv = document.createElement('div'); nameDiv.textContent = a.name + ' • ' + ((a.size||0)/1024).toFixed(1) + ' KB'; nameDiv.style.fontSize='12px'; nameDiv.style.color='#e6eef8';
+          const btnRow = document.createElement('div'); btnRow.style.marginTop='6px';
+          const openBtn = document.createElement('button'); openBtn.textContent = 'Open'; openBtn.className='tiny';
+          const delFile = document.createElement('button'); delFile.textContent='Delete file'; delFile.className='tiny'; delFile.style.marginLeft='8px';
+          btnRow.appendChild(openBtn); btnRow.appendChild(delFile);
+          el.appendChild(nameDiv); el.appendChild(btnRow); curatorList.appendChild(el);
+          safeAdd(openBtn, 'click', async ()=>{
+            try{
+              const rr = await (window.lumi && window.lumi.session ? window.lumi.session.readArchive(a.path) : { ok: false });
+              if(!rr || !rr.ok){ curatorStatus.textContent = 'Failed to read archive'; return; }
+              // render entries
+              const entries = rr.entries || [];
+              curatorList.innerHTML = '';
+              const hdr = document.createElement('div'); hdr.style.fontWeight='700'; hdr.textContent = `Archive: ${a.name} (${entries.length})`; curatorList.appendChild(hdr);
+              for(let i=0;i<entries.length;i++){
+                const it = entries[i];
+                const row = document.createElement('div'); row.style.borderTop='1px solid #172029'; row.style.padding='8px';
+                const meta = document.createElement('div'); meta.style.fontSize='12px'; meta.style.color='#9aa4b2'; meta.textContent = `#${i} • ${new Date(it.t||Date.now()).toLocaleString()} • ${it.role||''}`;
+                const ta = document.createElement('textarea'); ta.style.width='100%'; ta.style.minHeight='64px'; ta.value = String(it.text || it.raw || '');
+                const controls = document.createElement('div'); controls.style.marginTop='6px';
+                const accept = document.createElement('button'); accept.textContent='Accept'; accept.className='tiny';
+                const reject = document.createElement('button'); reject.textContent='Reject'; reject.className='tiny'; reject.style.marginLeft='8px';
+                const del = document.createElement('button'); del.textContent='Delete'; del.className='tiny'; del.style.marginLeft='8px';
+                controls.appendChild(accept); controls.appendChild(reject); controls.appendChild(del);
+                row.appendChild(meta); row.appendChild(ta); row.appendChild(controls); curatorList.appendChild(row);
+
+                safeAdd(accept, 'click', async ()=>{
+                  try{
+                    const payload = [{ role: it.role, text: ta.value, t: it.t, meta: it.meta }];
+                    const pres = await (window.lumi && window.lumi.session ? window.lumi.session.promoteSelected(payload) : { ok: false });
+                    if(pres && pres.ok) { say('Accepted entry'); } else { say('Accept failed'); }
+                  }catch(e){ console.warn(e); say('Accept failed'); }
+                });
+                safeAdd(reject, 'click', async ()=>{
+                  try{
+                    const pres = await (window.lumi && window.lumi.session ? window.lumi.session.moveEntryToRejected(a.path, i) : { ok: false });
+                    if(pres && pres.ok) { say('Moved to rejected'); row.remove(); } else { say('Reject failed'); }
+                  }catch(e){ console.warn(e); say('Reject failed'); }
+                });
+                safeAdd(del, 'click', async ()=>{
+                  try{
+                    const pres = await (window.lumi && window.lumi.session ? window.lumi.session.deleteArchiveEntry(a.path, i) : { ok: false });
+                    if(pres && pres.ok) { say('Deleted'); row.remove(); } else { say('Delete failed'); }
+                  }catch(e){ console.warn(e); say('Delete failed'); }
+                });
+              }
+              // back button
+              const back = document.createElement('div'); back.style.marginTop='12px'; const backBtn = document.createElement('button'); backBtn.textContent='Back'; backBtn.className='tiny'; back.appendChild(backBtn); curatorList.appendChild(back);
+              safeAdd(backBtn, 'click', ()=> renderArchiveList());
+            }catch(e){ console.warn('open archive failed', e); curatorStatus.textContent='Open failed'; }
+          });
+          safeAdd(delFile, 'click', async ()=>{
+            try{
+              if(!confirm('Delete this archive file?')) return;
+              // delete via main if implemented: currently not exposed; fall back to saying
+              const pres = await (window.lumi && window.lumi.session ? window.lumi.session.deleteArchiveEntry(a.path, -1) : { ok: false });
+              if(pres && pres.ok) { say('Archive file modified'); renderArchiveList(); } else { say('Delete file not supported'); }
+            }catch(e){ console.warn(e); say('Delete file failed'); }
+          });
+        }
+        if(archives.length === 0) curatorList.innerHTML = '<div style="color:var(--muted)">No archives</div>';
+      }catch(e){ console.warn('renderArchiveList failed', e); curatorStatus.textContent='Error'; curatorList.innerHTML = `<div style="color:#f88">${String(e)}</div>`; }
+    }
+    if(curatorArchivesBtn) curatorArchivesBtn.addEventListener('click', ()=>{ curatorPanel.style.display='block'; renderArchiveList(); });
+    const curatorSuggestionsBtn = document.getElementById('curatorSuggestions');
+    // === PREVIEW DIFF MODAL FOR SUGGESTIONS ===
+    async function previewSuggestionDiff(sug) {
+      try {
+        const filePath = sug.file || sug.path || 'unknown.txt';
+        const suggestionText = sug.suggestion || sug.message || sug.text || '';
+        const plan = {
+          id: `plan_preview_${Date.now()}`,
+          goal: suggestionText.slice(0, 200),
+          steps: [{
+            id: `step_${Date.now()}`,
+            action: 'writeFile',
+            args: {
+              path: `${filePath}.lumi.suggestion.txt`,
+              content: `/* Lumi suggestion for ${filePath} */\n${suggestionText}\n\n/* reasoning: ${sug.reasoning || sug.reason || ''} */\n`
+            }
+          }]
+        };
+
+        say('Simulating...', 1000, { feedback: false });
+        const sim = await (window.lumi && window.lumi.simulatePlan ? window.lumi.simulatePlan(plan) : Promise.resolve({ ok: false, error: 'simulate unavailable' }));
+        if (!sim || !sim.ok) { say('❌ Simulation failed: ' + (sim && sim.error ? sim.error : 'Unknown error'), 3000, { feedback: false }); return; }
+        showPreviewModal({ title: String(filePath).split(/[/\\]/).pop(), previews: sim.previews || [], suggestion: sug, plan });
+      } catch (e) { console.error('Preview failed:', e); say('❌ Preview failed: ' + String(e), 3000, { feedback: false }); }
+    }
+
+    function showPreviewModal(opts) {
+      const overlay = document.createElement('div');
+      overlay.style.cssText = `position: fixed; left: 0; top: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 100000;`;
+      const modal = document.createElement('div');
+      modal.style.cssText = `background: #0b1220; color: #e6eef8; padding: 20px; border-radius: 8px; max-width: 800px; max-height: 80vh; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 10px 40px rgba(0,0,0,0.5);`;
+
+      let previewHTML = '';
+      (opts.previews || []).forEach((p, i) => {
+        previewHTML += `<div style="margin-bottom: 16px; padding: 8px; background: #07101a; border-radius: 4px; border: 1px solid #24303a;">`;
+        previewHTML += `<div style="font-weight: bold; color: #ff7ab6; margin-bottom: 8px;">Step ${i + 1}: ${escapeHtml(p.action || 'Action')}</div>`;
+        previewHTML += `<div style="color: #e6eef8; font-family: monospace; white-space: pre-wrap;">${escapeHtml(p.preview || JSON.stringify(p))}</div>`;
+        previewHTML += `</div>`;
+      });
+
+      modal.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 2px solid #24303a;">
+          <h3 style="margin: 0; color: #e6eef8;">🔍 Preview: ${escapeHtml(opts.title)}</h3>
+          <button id="closeModal" style="background: none; border: none; font-size: 24px; cursor: pointer; color: #9aa4b2;">×</button>
+        </div>
+        <div style="flex: 1; overflow-y: auto; margin-bottom: 16px; font-size: 0.9rem;">${previewHTML || '<div style="color: #9aa4b2;">No preview available</div>'}</div>
+        <div style="display: flex; gap: 12px; justify-content: flex-end; padding-top: 12px; border-top: 2px solid #24303a;">
+          <button id="rejectBtn" style="padding: 10px 20px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;">❌ Reject</button>
+          <button id="cancelBtn" style="padding: 10px 20px; background: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer;">Cancel</button>
+          <button id="approveBtn" style="padding: 10px 20px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;">✅ Apply Fix</button>
+        </div>
+      `;
+
+      overlay.appendChild(modal); document.body.appendChild(overlay);
+      const cleanup = () => { try { overlay.remove(); } catch (_) {} };
+      modal.querySelector('#closeModal').addEventListener('click', cleanup);
+      modal.querySelector('#cancelBtn').addEventListener('click', cleanup);
+      modal.querySelector('#rejectBtn').addEventListener('click', async () => { cleanup(); await rejectSuggestionFromPreview(opts.suggestion); });
+      modal.querySelector('#approveBtn').addEventListener('click', async () => { cleanup(); await executePreviewedPlan(opts.plan, opts.suggestion); });
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(); });
+    }
+
+    async function executePreviewedPlan(plan, suggestion) {
+      try {
+        say('Applying...', 2000, { feedback: false });
+        const res = await (window.lumi && window.lumi.applyPlan ? window.lumi.applyPlan(plan, { approve: true }) : Promise.resolve({ ok: false, error: 'applyPlan unavailable' }));
+        if (res && res.ok) {
+          say('✅ Fix applied!', 3000, { feedback: false });
+          try { await (window.lumi && window.lumi.ackSuggestion ? window.lumi.ackSuggestion(suggestion.id || suggestion._id || suggestion.entryId) : Promise.resolve()); } catch (_e) {}
+          if (typeof renderSuggestionsList === 'function') renderSuggestionsList();
+        } else {
+          say('❌ Apply failed: ' + (res && res.error ? res.error : 'unknown'), 3000, { feedback: false });
+        }
+      } catch (e) { console.error('Execute failed:', e); say('❌ Execution failed: ' + String(e), 3000, { feedback: false }); }
+    }
+
+    async function rejectSuggestionFromPreview(suggestion) {
+      try { await (window.lumi && window.lumi.ackSuggestion ? window.lumi.ackSuggestion(suggestion.id || suggestion._id || suggestion.entryId) : Promise.resolve()); say('Suggestion rejected', 2000, { feedback: false }); if (typeof renderSuggestionsList === 'function') renderSuggestionsList(); } catch (e) { console.error('Reject failed:', e); say('Reject failed', 2000, { feedback: false }); }
+    }
+
+    // === END PREVIEW DIFF MODAL ===
+
+    function safeDisplayPath(p){
+      try{
+        let s = String(p || '');
+        if(s.includes('[PROJECT_ROOT]\\')) return s.replace('[PROJECT_ROOT]\\','');
+        s = s.replace(/^[A-Za-z]:\\/,'');
+        s = s.replace(/^\\\\[^\\]+\\[^\\]+/,'[REDACTED_PATH]');
+        s = s.replace(/^\/(Users|home)\/[\w\-. ]+/,'[REDACTED_PATH]');
+        return s || 'unknown';
+      }catch(_){ return 'unknown'; }
+    }
+
+    async function renderSuggestionsList(){
+      curatorStatus.textContent = 'Loading suggestions…';
+      try {
+        const res = await (window.lumi && window.lumi.listSuggestions ? window.lumi.listSuggestions() : { suggestions: [] });
+        const suggestions = (res && Array.isArray(res.suggestions)) ? res.suggestions : [];
+
+        curatorStatus.textContent = `${suggestions.length} suggestions`;
+        curatorList.innerHTML = '';
+
+        if (suggestions.length === 0) {
+          curatorList.innerHTML = '<div style="color:var(--muted)">No suggestions found</div>';
+          return;
+        }
+
+        // Show first 50 for performance
+        const displayed = suggestions.slice(0, 50);
+
+        for (const sug of displayed) {
+          const el = document.createElement('div');
+          el.style.border = '1px solid #24303a'; el.style.padding = '12px'; el.style.marginBottom = '12px'; el.style.borderRadius = '4px'; el.style.background = '#0b1220';
+
+          const filePath = sug.file || sug.path || sug.source || 'unknown';
+          const fileName = String(filePath).split(/[/\\]/).pop();
+          const message = sug.suggestion || sug.message || sug.text || 'No details';
+          const line = sug.line || sug.lineno || '?';
+          const severity = sug.severity || sug.priority || 'info';
+
+          const header = document.createElement('div'); header.style.display = 'flex'; header.style.justifyContent = 'space-between'; header.style.marginBottom = '8px';
+          header.innerHTML = `<div style="font-weight:600;font-family:monospace;font-size:0.9rem;color:#e6eef8">${escapeHtml(fileName)}</div>` +
+                             `<div style="font-size:0.75rem;padding:2px 6px;border-radius:4px;background:${severity === 'high' ? '#fee' : severity === 'medium' ? '#ffa' : '#efe'};color:${severity === 'high' ? '#c00' : severity === 'medium' ? '#880' : '#080'}">${escapeHtml(severity)}</div>`;
+
+          const meta = document.createElement('div'); meta.style.fontSize = '0.75rem'; meta.style.color = '#9aa4b2'; meta.style.marginBottom = '6px'; meta.textContent = `📁 ${safeDisplayPath(filePath)} • Line ${line}`;
+
+          const body = document.createElement('div'); body.style.fontSize = '0.85rem'; body.style.color = '#e6eef8'; body.style.marginBottom = '10px'; body.style.background = '#07101a'; body.style.padding = '8px'; body.style.borderRadius = '4px'; body.style.border = '1px solid #172029';
+          body.textContent = message.slice(0, 200) + (message.length > 200 ? '...' : '');
+
+          const actions = document.createElement('div'); actions.style.display = 'flex'; actions.style.gap = '8px';
+          const applyBtn = document.createElement('button'); applyBtn.textContent = '✅ Apply Fix'; applyBtn.style.cssText = 'background:#28a745;color:white;padding:6px 12px;border:none;border-radius:4px;cursor:pointer;';
+          const rejectBtn = document.createElement('button'); rejectBtn.textContent = '❌ Reject'; rejectBtn.style.cssText = 'background:#dc3545;color:white;padding:6px 12px;border:none;border-radius:4px;cursor:pointer;';
+          const detailsBtn = document.createElement('button'); detailsBtn.textContent = 'Details'; detailsBtn.className = 'tiny';
+
+          actions.appendChild(applyBtn); actions.appendChild(rejectBtn); actions.appendChild(detailsBtn);
+
+          el.appendChild(header); el.appendChild(meta); el.appendChild(body); el.appendChild(actions);
+          curatorList.appendChild(el);
+
+          safeAdd(applyBtn, 'click', async () => { try { await previewSuggestionDiff(sug); } catch (e) { console.warn('preview click failed', e); } });
+
+          safeAdd(rejectBtn, 'click', async () => {
+            try {
+              if (!confirm('Reject this suggestion?')) return;
+              rejectBtn.disabled = true;
+              await (window.lumi && window.lumi.ackSuggestion ? window.lumi.ackSuggestion(sug.id || sug._id) : Promise.resolve());
+              say('Suggestion rejected', 1500, { feedback: false });
+              await renderSuggestionsList();
+            } catch (e) { console.warn('Reject failed', e); say('Reject failed', 2000, { feedback: false }); }
+          });
+
+          safeAdd(detailsBtn, 'click', () => {
+            alert(`FILE: ${safeDisplayPath(filePath)}\nLINE: ${line}\nSEVERITY: ${severity}\n\nSUGGESTION:\n${message}\n\nID: ${sug.id || 'unknown'}`);
+          });
+        }
+
+        if (suggestions.length > 50) {
+          const moreDiv = document.createElement('div'); moreDiv.style.marginTop = '12px'; moreDiv.style.padding = '8px'; moreDiv.style.textAlign = 'center'; moreDiv.style.color = 'var(--muted)'; moreDiv.textContent = `Showing first 50 of ${suggestions.length} suggestions`;
+          curatorList.appendChild(moreDiv);
+        }
+
+      } catch (e) {
+        curatorStatus.textContent = 'Error'; curatorList.innerHTML = `<div style="color:#f88">${String(e)}</div>`;
+      }
+    }
+    if (curatorSuggestionsBtn) {
+      curatorSuggestionsBtn.addEventListener('click', () => { curatorPanel.style.display = 'block'; renderSuggestionsList(); });
+    }
+
+    // Try mounting the React `SecurityCurator` component if available.
+    (function mountReactCurator(){
+      try {
+        if (typeof React === 'undefined' || typeof ReactDOM === 'undefined') {
+          // React not loaded; inline curator remains the primary UI
+          return;
+        }
+        const openCuratorBtn = document.getElementById('openCurator');
+        const curatorPanelEl = document.getElementById('curatorPanel');
+        if (!openCuratorBtn || !curatorPanelEl) return;
+
+        // Create a mount point for the React component
+        let reactMount = document.getElementById('curatorReactMount');
+        if (!reactMount) {
+          reactMount = document.createElement('div');
+          reactMount.id = 'curatorReactMount';
+          reactMount.style.cssText = 'position:fixed;left:24px;bottom:24px;width:580px;height:580px;background:#07101a;color:#e6eef8;padding:0;border-radius:12px;display:none;box-shadow:0 18px 60px rgba(2,6,23,.6);z-index:10004;overflow:hidden;';
+          document.body.appendChild(reactMount);
+          const closeReactBtn = document.createElement('button'); closeReactBtn.textContent = 'Close'; closeReactBtn.className = 'tiny'; closeReactBtn.style.cssText = 'position:absolute;top:12px;right:12px;z-index:1;';
+          closeReactBtn.addEventListener('click', ()=> { reactMount.style.display = 'none'; });
+          reactMount.appendChild(closeReactBtn);
+        }
+
+        // Attach handler that prefers React component when available
+        openCuratorBtn.addEventListener('click', () => {
+          try {
+            if (window.SecurityCurator) {
+              // Render React component
+              reactMount.style.display = 'block';
+              try {
+                const Comp = (window.SecurityCurator.default || window.SecurityCurator);
+                ReactDOM.render(React.createElement(Comp), reactMount);
+                return;
+              } catch (e) { console.warn('React render failed, falling back to inline curator', e); }
+            }
+          } catch (e) { /* ignore */ }
+          // Fallback to inline DOM based curator
+          curatorPanelEl.style.display = 'block'; renderCuratorItems();
+        });
+
+      } catch (e) { console.warn('Failed to mount React curator:', e); }
+    })();
     if (closeCurator) closeCurator.addEventListener('click', ()=> curatorPanel.style.display = 'none');
 
     // Self-learn toggle in chat controls
@@ -521,28 +894,98 @@
     }
 
     function applyPersona(p){
+      // normalize tone to a single active token for consistent rendering
+      const _tone = (p && p.tone) ? normalizeTone(p.tone) : '';
       document.getElementById('lumiName').textContent = p.name || 'Lumi';
-      document.getElementById('lumiTone').textContent = p.tone || '';
+      document.getElementById('lumiTone').textContent = _tone || '';
       personaName.value = p.name || '';
-      personaTone.value = p.tone || '';
+      personaTone.value = _tone || '';
       personaInterests.value = (p.interests || '').toString();
+    }
+
+    // Ensure a single canonical tone token (first listed) is used everywhere
+    function normalizeTone(t){
+      try{
+        if(!t) return '';
+        // split on common separators used in UI (dot bullet, comma, pipe, or whitespace)
+        const parts = t.toString().split(/\u00B7|\.|·|,|\||;|\s+/).map(s=>s.trim()).filter(Boolean);
+        return parts.length? parts[0].toLowerCase() : '';
+      }catch(e){ return (t||'').toString(); }
+    }
+
+    // Small helper to lightly render a reply according to tone (emoji + optional tag)
+    function renderReplyWithTone(tone, text){
+      try{
+        const t = (tone||'').toString().toLowerCase();
+        let emoji = '';
+        switch(t){
+          case 'angry': case 'annoyed': emoji = '😠 '; break;
+          case 'happy': case 'playful': emoji = '😄 '; break;
+          case 'ambitious': emoji = '💪 '; break;
+          case 'curious': emoji = '🤔 '; break;
+          case 'witty': case 'funny': emoji = '😏 '; break;
+          case 'honest': emoji = '🔎 '; break;
+          case 'determined': emoji = '🎯 '; break;
+          case 'thoughtful': emoji = '🧭 '; break;
+          case 'friendly': emoji = '😊 '; break;
+          default: emoji = t? '💬 ' : '';
+        }
+        return (emoji + (text||''));
+      }catch(e){ return text; }
+    }
+
+    // Remove common stage-direction parentheticals (e.g. "(Tilts head, processing…)")
+    function sanitizeAssistantText(text){
+      try{
+        if(!text) return '';
+        // remove parenthetical phrases that contain action-like keywords
+        const cleaned = text.replace(/\([^)]*\b(tilt|tilts|tilting|whirr|whirring|processing|faint|sigh|clears throat|nod|shrug)\b[^)]*\)/gi, '').trim();
+        // collapse multiple blank lines
+        return cleaned.replace(/\n{3,}/g,'\n\n').trim();
+      }catch(e){ return text; }
+    }
+
+    // Heuristic language detection for code snippets (very lightweight)
+    function detectLanguage(code){
+      try{
+        const s = (code||'').toString();
+        if(/<\s*!?doctype|<html|<head|<body|<div|<section|<script|<style/i.test(s)) return 'html';
+        if(/\b(function|const|let|var|=>|console\.|document\.|window\.)\b/.test(s)) return 'javascript';
+        if(/\b(def|import\s|from\s|print\(|self\.|None\b)\b/.test(s)) return 'python';
+        if(/\b(class\s+[A-Z]|#include\s+<|int\s+main\s*\(|std::)/.test(s)) return 'cpp';
+        if(/\{[\s\S]*: [\s\S]*;\s*\}/.test(s) || /\.[a-zA-Z0-9_-]+\s*\{/.test(s)) return 'css';
+        return 'unknown';
+      }catch(e){ return 'unknown'; }
     }
 
     /* KB helpers */
     function loadKB(){ try{ return JSON.parse(localStorage.getItem(KB_KEY) || '{"qa":[],"meta":{}}'); }catch(e){ return {qa:[],meta:{}} } }
     function saveKB(kb){
-      try{ localStorage.setItem(KB_KEY, JSON.stringify(kb)); updateScore(); }catch(e){ /* ignore */ }
+      try{ kb = sanitizeKBObject(kb); }catch(_){ }
+try{
+        // Strip embeddings before saving to localStorage
+        const cleaned = {
+          qa: (kb.qa || []).map(entry => {
+            const clean = {...entry};
+            delete clean.embedding;
+            return clean;
+          }),
+          meta: kb.meta || {}
+        };
+        localStorage.setItem(KB_KEY, JSON.stringify(cleaned));
+        updateScore();
+      }catch(e){ /* ignore */ }
       try{
         const remote = window.lumi;
         if(remote && typeof remote.saveKnowledge === 'function'){
-          // fire-and-forget save to canonical file
-          remote.saveKnowledge(kb).catch(()=>{});
+          // Also strip embeddings when saving to canonical file
+          remote.saveKnowledge(typeof cleaned !== 'undefined' ? cleaned : (function(){ const c = {qa:(kb.qa||[]).map(e=>{ const x = {...e}; delete x.embedding; return x; }), meta: kb.meta||{} }; return c; })()).catch(()=>{});
         }
       }catch(_){ }
     }
     
     /* Initialize seed KB entries for persona identity (uses saved persona name) */
-    function initializeSeedKB(){
+    /*function initializeSeedKB(){
       const kb = loadKB();
       const persona = loadPersona();
       const pname = persona && persona.name ? persona.name : 'Lumi';
@@ -564,9 +1007,66 @@
         saveKB(kb);
         console.log('[Lumi] Seed KB entries initialized for', pname);
       }
+    }*/
+
+    
+    /* KB sanitization: drop legacy seed/demo entries that break self-learn */
+    const KB_BLOCKLIST_Q = new Set([
+      "what is your name?",
+      "who are you?",
+      "who created you?",
+      "what is your purpose?",
+      "what are u",
+      "what are you",
+      "what is an array?",
+      "how to sort an array?"
+    ].map(s => (s||'').trim().toLowerCase()));
+
+    function normalizeKBQ(q){ return (q||'').toString().trim().toLowerCase(); }
+
+    function shouldDropKBEntry(e){
+      try{
+        if(!e) return true;
+        const id = (e.id !== undefined && e.id !== null) ? String(e.id) : '';
+        const q = normalizeKBQ(e.q);
+        // auto-seeded persona/identity items
+        if(id.startsWith('seed_')) return true;
+        if(e.user_id === 'system' && (q === 'what is your name?' || q === 'who are you?' || q === 'who created you?' || q === 'what is your purpose?')) return true;
+        // emoji-prefixed legacy "cute" seeds and fallbacks
+        if(/^\s*💕/.test((e.q||'').toString())) return true;
+        if(q.includes('provided from lumi kb as fallback')) return true;
+        // explicit blocklist
+        if(KB_BLOCKLIST_Q.has(q)) return true;
+        return false;
+      }catch(_){ return false; }
     }
 
-    // On startup, attempt to load canonical KB via preload IPC (Electron). If found, merge/replace localStorage.
+    function sanitizeKBObject(kb){
+      try{
+        const out = (kb && typeof kb === 'object') ? kb : {qa:[], meta:{}};
+        out.qa = Array.isArray(out.qa) ? out.qa.filter(e => !shouldDropKBEntry(e)) : [];
+        out.meta = (out.meta && typeof out.meta === 'object') ? out.meta : {};
+        return out;
+      }catch(_){ return {qa:[], meta:{}}; }
+    }
+
+    // Save KB locally without touching the canonical host file (safe before preload sync)
+    function saveKBLocalOnly(kb){
+      try{
+        const cleaned = {
+          qa: (kb.qa || []).map(entry => {
+            const clean = {...entry};
+            delete clean.embedding;
+            return clean;
+          }),
+          meta: kb.meta || {}
+        };
+        localStorage.setItem(KB_KEY, JSON.stringify(cleaned));
+        try{ updateScore(); }catch(_){}
+      }catch(_){ }
+    }
+
+// On startup, attempt to load canonical KB via preload IPC (Electron). If found, merge/replace localStorage.
     (async function syncKBFromHost(){
       try{
         const remote = window.lumi;
@@ -575,10 +1075,11 @@
           if(data && (data.qa || (Array.isArray(data) && data.length))){
             try{
               // prefer canonical file when available - merge with existing local KB
-              const local = loadKB();
+              const local = sanitizeKBObject(loadKB());
               // simple merge: prepend canonical entries not present locally (by id or q)
               const existing = new Set((local.qa||[]).map(e=> (e.id||'') + '|' + (e.q||'') ));
-              const incoming = (data.qa && Array.isArray(data.qa)) ? data.qa : (Array.isArray(data) ? data : []);
+              const incomingRaw = (data.qa && Array.isArray(data.qa)) ? data.qa : (Array.isArray(data) ? data : []);
+        const incoming = (incomingRaw || []).filter(it => !shouldDropKBEntry(it));
               for(const it of incoming){ const key = (it.id||'') + '|' + (it.q||''); if(!existing.has(key)){ local.qa.unshift(it); existing.add(key); } }
               saveKB(local);
             }catch(_){ try{ localStorage.setItem(KB_KEY, JSON.stringify(data)); updateScore(); }catch(__){} }
@@ -665,9 +1166,6 @@
     }
 
     function updateScore(){ 
-      const kb = loadKB(); 
-      const entries = kb && kb.qa ? kb.qa.length : (Array.isArray(kb) ? kb.length : 0);
-      scoreEl.textContent = 'Knowledge entries: ' + entries;
       try {
         if (window.lumi && typeof window.lumi.getMetrics === 'function') {
           window.lumi.getMetrics().then(m => {
@@ -675,9 +1173,17 @@
               const total = Number(m.totalKB || 0);
               scoreEl.textContent = 'Knowledge entries: ' + total;
             }
-          }).catch(() => {});
+          }).catch(() => {
+            const kb = loadKB();
+            const entries = kb && kb.qa ? kb.qa.length : (Array.isArray(kb) ? kb.length : 0);
+            scoreEl.textContent = 'Knowledge entries: ' + entries;
+          });
         }
-      } catch (_e) {}
+      } catch (_e) {
+        const kb = loadKB();
+        const entries = kb && kb.qa ? kb.qa.length : (Array.isArray(kb) ? kb.length : 0);
+        scoreEl.textContent = 'Knowledge entries: ' + entries;
+      }
     }
 
     // Subscribe to learning events from main so UI updates immediately when KB changes
@@ -736,9 +1242,87 @@
       const p = loadPersona();
       const settings = loadSettings();
       const prefix = ''; // keep replies natural (persona applied elsewhere)
-      // show bubble; optionally include inline feedback controls
-      bubble.innerHTML = '';
-      const t = document.createElement('div'); t.textContent = text; bubble.appendChild(t);
+        // show bubble; optionally include inline feedback controls
+        bubble.innerHTML = '';
+        const cleanedText = sanitizeAssistantText(String(text||''));
+        const t = document.createElement('div'); t.textContent = cleanedText; bubble.appendChild(t);
+        // Auto-open code editor when assistant reply contains fenced code blocks or clear code-like snippets;
+        // only treat content as code when it's a fenced block, a multi-line block, or a sufficiently long
+        // inline/backtick segment that contains code-like tokens (to avoid opening editor for simple mentions).
+        try {
+          const txt = String(text || '');
+          let shouldOpenEditor = false;
+          let detectedCode = null;
+          let detectedLang = null;
+
+          // Method 1: Detect fenced code blocks (```lang ... ```)
+          const fenceMatch = txt.match(/```(\w+)?\s*([\s\S]*?)\s*```/);
+          if (fenceMatch) {
+            detectedLang = fenceMatch[1] || 'javascript';
+            detectedCode = fenceMatch[2] || '';
+            shouldOpenEditor = detectedCode.length > 10;
+          }
+
+          // Method 2: Detect inline code that looks substantial
+          if (!shouldOpenEditor) {
+            const inlineCode = txt.match(/`([^`]{20,})`/);
+            if (inlineCode && /[{};()=>]/.test(inlineCode[1])) {
+              detectedCode = inlineCode[1];
+              detectedLang = detectLanguage(detectedCode);
+              shouldOpenEditor = true;
+            }
+          }
+
+          // Method 3: Detect multi-line code without fences (heuristic)
+          if (!shouldOpenEditor) {
+            const lines = txt.split(/\r?\n/);
+            const codeLines = [];
+            const codePatterns = [
+              /^\s*(?:function|const|let|var|class|def|import|from|use|fn|impl|struct|enum)\b/,
+              /[{};]\s*$/,
+              /^\s*(?:if|for|while|switch|match|case)\s*\(/,
+              /=>\s*[{(]/,
+              /^\s*(?:public|private|protected|async|await)\b/,
+              /<\/?\w+[^>]*>/,
+            ];
+            for (const line of lines) {
+              if (codePatterns.some(p => p.test(line))) codeLines.push(line);
+            }
+            if (codeLines.length >= 3) {
+              detectedCode = codeLines.join('\n');
+              detectedLang = detectLanguage(detectedCode);
+              shouldOpenEditor = true;
+            }
+          }
+
+          // Open editor if code detected
+          if (shouldOpenEditor && detectedCode) {
+            try { if (codeInput) { codeInput.value = detectedCode.trim(); codeInput.dataset.lang = detectedLang || (detectLanguage ? detectLanguage(detectedCode) : 'text'); } } catch (e) { }
+            try { if (codePanel) codePanel.style.display = 'block'; } catch (e) { }
+            try { const badge = document.getElementById('codeLangBadge'); if (badge) badge.textContent = detectedLang || (codeInput && codeInput.dataset && codeInput.dataset.lang) || ''; } catch (e) { }
+
+            const note = document.createElement('div');
+            note.style.marginTop = '8px'; note.style.fontSize = '12px'; note.style.color = 'var(--muted)'; note.style.fontStyle = 'italic';
+            note.textContent = `💻 I've put the ${detectedLang || 'code'} code in my editor so I can work with it.`;
+            try { bubble.appendChild(note); } catch (e) { }
+
+            // Try to mount React AutoCodeBox if available
+            try {
+              if (window.React && window.ReactDOM && !document.getElementById('reactCodeMount')) {
+                const mount = document.createElement('div'); mount.id = 'reactCodeMount'; document.body.appendChild(mount);
+                (async () => {
+                  try {
+                    const mod = await import('./dist/components/AutoCodeBox.js');
+                    const Comp = mod && mod.default ? mod.default : null;
+                    if (Comp && window.ReactDOM) {
+                      window.ReactDOM.render(window.React.createElement(Comp, { assistantMessage: detectedCode, language: detectedLang }), mount);
+                    }
+                  } catch (_) { /* ignore */ }
+                })();
+              }
+            } catch (_) { }
+          }
+        } catch (e) { console.warn('[CodeDetect] Error in code detection:', e); }
       let up, down, teach;
       const showFeedback = (opts && typeof opts.feedback !== 'undefined') ? opts.feedback : !!settings.feedbackEnabled;
       if(showFeedback){
@@ -817,6 +1401,35 @@
       return {answer:"I may not know that yet. Paste a small code snippet and I'll try to analyze it; if I'm wrong, teach me and I'll remember.", source:'fallback'};
     }
 
+    /* KB synthesis: when LLM is unavailable, combine top KB hits into a concise, reasoning-style answer */
+    function kbSynthesize(question, topN = 5){
+      try{
+        const q = (question||'').trim(); if(!q) return {answer:'', hits: [], confidence:0};
+        const kb = loadKB(); const candidates = [];
+        let qemb = null; try{ qemb = computeEmbedding(q); }catch(_){ qemb = null; }
+        for(const e of (kb.qa||[])){
+          let score = 0;
+          try{
+            const eq = (e.q||'').toString().toLowerCase(); const ql = q.toLowerCase();
+            if(eq === ql) score += 2.0;
+            else if(ql.includes(eq) || eq.includes(ql)) score += 1.2;
+            if(qemb && e.embedding){ score += Math.max(0, cosineSim(qemb, e.embedding)); }
+          }catch(_){ }
+          candidates.push({entry: e, score});
+        }
+        candidates.sort((a,b)=>b.score - a.score);
+        const top = candidates.slice(0, topN).filter(c=>c.score > 0);
+        if(!top.length) return {answer:'I could not find relevant knowledge in my KB for that question.', hits: [], confidence: 0.2};
+        let out = 'Based on my knowledge, I found the following relevant items:\n\n';
+        top.forEach((t, i)=>{ out += `${i+1}. ${t.entry.q} — ${t.entry.a}\n\n`; });
+        // simple synthesis: take prominent sentences from top answers
+        const concl = top.map(t=>{ const a=(t.entry.a||'').toString(); const s = a.split(/\.|\n/).find(p=>p && p.trim().length>12); return s? s.trim(): a.slice(0,120); }).filter(Boolean);
+        if(concl.length){ out += 'Synthesis: ' + concl.slice(0,3).join(' — '); }
+        const confidence = Math.min(0.95, 0.35 + Math.max(0, top[0].score) * 0.25);
+        return {answer: out, hits: top.map(t=>t.entry), confidence};
+      }catch(e){ console.warn('kbSynthesize failed', e); return {answer:'KB synthesis failed.', hits:[], confidence:0.2}; }
+    }
+
     /* Local reranker: given a question and candidate replies, score candidates by similarity to question.
        Returns array sorted descending by score: [{candidate, score}, ...] */
     function localRerank(question, candidates){
@@ -829,10 +1442,21 @@
     }
     window.lumiRerank = localRerank;
 
-    /* Conversation recording */
+    /* Conversation recording (per-session) */
+    const SESSION_ID_KEY = 'lumi_session_id';
+    function getSessionId(){
+      try{
+        let sid = sessionStorage.getItem(SESSION_ID_KEY);
+        if(!sid){ sid = `session_${Date.now()}_${Math.random().toString(16).slice(2,6)}`; sessionStorage.setItem(SESSION_ID_KEY, sid); }
+        return sid;
+      }catch(_){ return `session_${Date.now()}_${Math.random().toString(16).slice(2,6)}`; }
+    }
+    function getConversationKey(){ return `lumi_conv_${getSessionId()}`; }
+
     function recordConversation(role,text,meta){
       try{
-        const conv = JSON.parse(localStorage.getItem('lumi_conv_v1')||'[]');
+        const key = getConversationKey();
+        const conv = JSON.parse(sessionStorage.getItem(key)||'[]');
         const entry = {role, text, t:Date.now()};
         if(meta) entry.meta = meta;
         if(role === 'assistant'){
@@ -840,7 +1464,7 @@
         }
         conv.push(entry);
         if(conv.length>2000) conv.splice(0,conv.length-2000);
-        localStorage.setItem('lumi_conv_v1', JSON.stringify(conv));
+        sessionStorage.setItem(key, JSON.stringify(conv));
 
         // Also persist to main-process file-backed memory store when available
         try{
@@ -858,14 +1482,37 @@
     }
 
     /* Conversation history UI */
-    function loadConversation(){ try{ return JSON.parse(localStorage.getItem('lumi_conv_v1')||'[]'); }catch(e){ return []; } }
+    function loadConversation(){ try{ return JSON.parse(sessionStorage.getItem(getConversationKey())||'[]'); }catch(e){ return []; } }
 
-    function saveConversation(conv){ try{ localStorage.setItem('lumi_conv_v1', JSON.stringify(conv)); }catch(e){ console.warn('saveConversation failed', e); } }
+    async function archiveCurrentSession(reason){
+      try{
+        const conv = loadConversation();
+        if(!Array.isArray(conv) || conv.length === 0) return;
+        const last = conv[conv.length - 1] || {};
+        const sig = `${conv.length}:${last.t || last.timestamp || ''}`;
+        const prev = localStorage.getItem('lumi_last_archive_sig') || '';
+        if(sig && sig === prev) return;
+        localStorage.setItem('lumi_last_archive_sig', sig);
+        const sessionApi = (window.lumi && window.lumi.session) ? window.lumi.session : null;
+        if(sessionApi && typeof sessionApi.createArchive === 'function'){
+          sessionApi.createArchive(conv, reason || 'session_auto');
+          return;
+        }
+        const archivesApi = (window.lumi && window.lumi.archives) ? window.lumi.archives : null;
+        if(archivesApi && typeof archivesApi.create === 'function'){
+          archivesApi.create(conv, reason || 'session_auto');
+        }
+      }catch(e){ console.warn('archiveCurrentSession failed', e); }
+    }
+
+    function saveConversation(conv){ try{ sessionStorage.setItem(getConversationKey(), JSON.stringify(conv)); }catch(e){ console.warn('saveConversation failed', e); } }
 
     /* Lightweight persona learner: updates persona tone/interests from conversation content.
        Heuristics: scan recent messages for known tone keywords and interest tokens, and update persona.
        This intentionally keeps changes minimal and reversible by saving to persona storage. */
     async function learnPersonaFromConversation(conv){ try{
+      // throttle auto-persona updates to at most once per minute to avoid rapid UI noise
+      try{ const now = Date.now(); if(window._lastAutoPersonaUpdateTime && (now - window._lastAutoPersonaUpdateTime) < 60000) return; window._lastAutoPersonaUpdateTime = now; }catch(_){ }
       if(!Array.isArray(conv) || !conv.length) return;
       const recent = conv.slice(-60); // analyze last 60 messages
       const toneKeywords = ['curious','funny','ambitious','honest','evolving','witty','determined','playful','helpful','thoughtful','serious','friendly'];
@@ -917,9 +1564,9 @@
         }
       }catch(_){ }
 
-      // pick top tone words (up to 4)
+      // pick top tone word (single tone) to keep persona focused
       const toneSorted = Object.keys(toneCounts).sort((a,b)=>toneCounts[b]-toneCounts[a]).filter(k=>toneCounts[k]>0);
-      const newTone = toneSorted.slice(0,4).join(' · ') || loadPersona().tone || '';
+      const newTone = (toneSorted.length? toneSorted[0] : loadPersona().tone || '');
 
       // pick top interests (up to 6)
       const interestSorted = Object.keys(interestCounts).sort((a,b)=>interestCounts[b]-interestCounts[a]).filter(k=>interestCounts[k]>0);
@@ -1140,6 +1787,11 @@
         if(fb.length>5000) fb.splice(0,fb.length-5000);
         localStorage.setItem('lumi_feedback_v1', JSON.stringify(fb));
       }catch(e){ }
+      try{
+        if(window.lumi && typeof window.lumi.logFeedback === 'function'){
+          window.lumi.logFeedback(type, text || '');
+        }
+      }catch(_){ }
     }
 
     // augment feedback recording by persisting as a signal into main-process memory
@@ -1174,13 +1826,59 @@
               window.lumi.memoryAdd(entry).catch && window.lumi.memoryAdd(entry).catch(()=>{});
             }
           }
+
+          // Notify personality engine about feedback so mood updates
+          try{
+            if(window.lumi && window.lumi.rag){
+              if(type === 'up' || type === 'positive' || type === 'thumbs_up'){
+                try{ window.lumi.rag.recordPositive && window.lumi.rag.recordPositive(); }catch(_e){}
+              } else if(type === 'down' || type === 'negative' || type === 'thumbs_down'){
+                try{ window.lumi.rag.recordNegative && window.lumi.rag.recordNegative(); }catch(_e){}
+              }
+              // schedule a UI update shortly after sending signal
+              setTimeout(updateMoodDisplay, 800);
+            }
+          }catch(_){ }
         }catch(e){}
       };
     }catch(e){}
 
+    // Mood UI updater: queries RAG/personality stats and updates the tone element
+    async function updateMoodDisplay(){
+      try{
+        const toneEl = document.getElementById('lumiTone');
+        if(!toneEl) return;
+        if(window.lumi && window.lumi.rag && typeof window.lumi.rag.getStats === 'function'){
+          try{
+            const res = await window.lumi.rag.getStats();
+            const mood = res && res.stats && res.stats.personality && res.stats.personality.mood ? res.stats.personality.mood : null;
+            const intensity = res && res.stats && res.stats.personality && typeof res.stats.personality.intensity === 'number' ? res.stats.personality.intensity : 0.6;
+            if(mood){
+              const moodColors = { happy: '#4ade80', excited: '#fbbf24', frustrated: '#f87171', annoyed: '#fb923c', playful: '#a78bfa', neutral: '#9aa4b2' };
+              toneEl.textContent = mood + (intensity ? (' · ' + Math.round(intensity*100)+'%') : '');
+              toneEl.style.color = moodColors[mood] || '#9aa4b2';
+              toneEl.style.opacity = Math.max(0.6, Math.min(1, intensity || 0.6));
+            }
+          }catch(e){ /* ignore */ }
+        }
+      }catch(e){ console.warn('updateMoodDisplay failed', e); }
+    }
+
+    // Kick off periodic mood updates
+    try{ setInterval(updateMoodDisplay, 10000); setTimeout(updateMoodDisplay, 2000); }catch(_){ }
+
     /* Ask flow */
-    askBtn.addEventListener('click', ()=> handleQuestion());
-    questionInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter') handleQuestion(); });
+    function autoResizeQuestion(){ try{ if(!questionInput) return; questionInput.style.height = 'auto'; const h = Math.min(questionInput.scrollHeight, 240); questionInput.style.height = (h) + 'px'; }catch(e){} }
+    // initialize height
+    setTimeout(autoResizeQuestion, 50);
+    askBtn.addEventListener('click', ()=>{ try{ handleQuestion(); }catch(e){ console.warn(e); } finally { setTimeout(autoResizeQuestion,50); } });
+    safeAdd(questionInput, 'input', autoResizeQuestion);
+    questionInput.addEventListener('keydown', (e)=>{
+      if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); try{ handleQuestion(); }catch(err){ console.warn(err); } finally { setTimeout(autoResizeQuestion,50); } }
+      else if(e.key === 'Enter' && e.shiftKey){ // allow newline and expand
+        setTimeout(autoResizeQuestion,0);
+      }
+    });
 
     // Say Hi quick button
     if (speakBtn) speakBtn.addEventListener('click', ()=>{ try{ say('Hi there — what can I do for you?', 2500, {feedback:false}); }catch(e){ console.warn(e); } });
@@ -1241,45 +1939,69 @@
       if(kbResult && kbResult.source !== 'fallback'){
         reply = kbResult.answer;
       } else {
-        // Otherwise try LLM, then fallback to KB fallback message
-        try {
-          if(window.lumi && typeof window.lumi.think === 'function'){
-            // attempt retrieval from file-backed memory to augment prompt
-            try{
-              if(window.lumi && typeof window.lumi.memoryQuery === 'function'){
-                const mres = await window.lumi.memoryQuery(q, 6);
-                if(mres && mres.ok && Array.isArray(mres.results) && mres.results.length){
-                  // build brief context from recent memory entries
-                  const ctx = mres.results.slice(0,6).map(r=>`[${r.role||'mem'}] ${ (r.text||'').toString().slice(0,480) }`).join('\n');
-                  const augmented = `Context (from Lumi memory):\n${ctx}\n\nUser question:\n${q}`;
-                  const res = await window.lumi.think(augmented);
-                  reply = res && res.output ? res.output : 'No response received';
+        // Otherwise try LLM, then fallback to KB if LLM is unavailable or returns nothing
+          try {
+            if(window.lumi && typeof window.lumi.think === 'function'){
+              // attempt retrieval from file-backed memory to augment prompt
+              try{
+                if(window.lumi && typeof window.lumi.memoryQuery === 'function'){
+                  const mres = await window.lumi.memoryQuery(q, 6);
+                  if(mres && mres.ok && Array.isArray(mres.results) && mres.results.length){
+                    // build brief context from recent memory entries
+                    const ctx = mres.results.slice(0,6).map(r=>`[${r.role||'mem'}] ${ (r.text||'').toString().slice(0,480) }`).join('\n');
+                    const augmented = `Context (from Lumi memory):\n${ctx}\n\nUser question:\n${q}`;
+                    const res = await window.lumi.think(augmented);
+                    if(res && res.output) reply = res.output;
+                    else {
+                      const synth = kbSynthesize(q, 5);
+                      if(synth && synth.answer) reply = synth.answer + '\n\n(From Lumi KB — synthesized offline answer, confidence ' + Math.round((synth.confidence||0)*100) + '%)';
+                      else if(kbResult && kbResult.answer) reply = kbResult.answer + '\n\n(Provided from Lumi KB as fallback)';
+                      else reply = "I can't reach the model right now and couldn't find a direct KB answer. Try rephrasing or ask me to search the KB.";
+                    }
+                  } else {
+                    const res = await window.lumi.think(q);
+                    if(res && res.output) reply = res.output;
+                    else {
+                      const synth = kbSynthesize(q, 5);
+                      if(synth && synth.answer) reply = synth.answer + '\n\n(From Lumi KB — synthesized offline answer, confidence ' + Math.round((synth.confidence||0)*100) + '%)';
+                      else if(kbResult && kbResult.answer) reply = kbResult.answer + '\n\n(Provided from Lumi KB as fallback)';
+                      else reply = "I can't reach the model right now and couldn't find a direct KB answer. Try rephrasing or ask me to search the KB.";
+                    }
+                  }
                 } else {
                   const res = await window.lumi.think(q);
-                  reply = res && res.output ? res.output : 'No response received';
+                  if(res && res.output) reply = res.output;
+                  else if(kbResult && kbResult.answer) reply = kbResult.answer + '\n\n(Provided from Lumi KB as fallback)';
+                  else reply = "I can't reach the model right now and couldn't find a direct KB answer. Try rephrasing or ask me to search the KB.";
                 }
-              } else {
+              }catch(memErr){
+                console.warn('memoryQuery failed', memErr);
                 const res = await window.lumi.think(q);
-                reply = res && res.output ? res.output : 'No response received';
+                if(res && res.output) reply = res.output;
+                else {
+                  const synth = kbSynthesize(q, 5);
+                  if(synth && synth.answer) reply = synth.answer + '\n\n(From Lumi KB — synthesized offline answer, confidence ' + Math.round((synth.confidence||0)*100) + '%)';
+                  else if(kbResult && kbResult.answer) reply = kbResult.answer + '\n\n(Provided from Lumi KB as fallback)';
+                  else reply = "I can't reach the model right now and couldn't find a direct KB answer. Try rephrasing or ask me to search the KB.";
+                }
               }
-            }catch(memErr){
-              console.warn('memoryQuery failed', memErr);
-              const res = await window.lumi.think(q);
-              reply = res && res.output ? res.output : 'No response received';
+            } else {
+              // LLM not available — prefer KB answer if present
+              if(kbResult && kbResult.answer){ const synth = kbSynthesize(q,5); if(synth && synth.answer) reply = synth.answer + '\n\n(From Lumi KB — offline synthesis, confidence ' + Math.round((synth.confidence||0)*100) + '%)'; else reply = kbResult.answer + '\n\n(Provided from Lumi KB — offline mode)'; }
+              else reply = "I can't reach the language model right now. I searched my KB but couldn't find a clear answer. Try rephrasing or ask me to search the KB.";
             }
-          } else {
-            reply = kbResult.answer;
+          } catch(e){
+            console.warn('lumi.think failed:', e);
+            if(kbResult && kbResult.answer){ const synth = kbSynthesize(q,5); if(synth && synth.answer) reply = synth.answer + '\n\n(From Lumi KB — fallback synthesis, confidence ' + Math.round((synth.confidence||0)*100) + '%)'; else reply = kbResult.answer + '\n\n(Provided from Lumi KB — fallback after error)'; }
+            else reply = "I can't reach the language model right now and an error occurred. Try again or ask me to search the KB.";
           }
-        } catch(e){
-          console.warn('lumi.think failed:', e);
-          reply = kbResult.answer;
-        }
       }
       
       showThinking(false);
       // personalize short replies by injecting a gentle prefix for personality
       const p = loadPersona();
-      const displayReply = (p.tone? '💕 ' : '') + reply;
+      const tone = (p && p.tone) ? normalizeTone(p.tone) : '';
+      const displayReply = renderReplyWithTone(tone, reply);
       say(displayReply);
       // record assistant reply with persona metadata so each user sees the persona name they set
       try{ const p = loadPersona(); recordConversation('assistant', reply, {persona: p.name}); }catch(e){ recordConversation('assistant', reply); }
@@ -1292,6 +2014,7 @@
       // store last assistant Q/A for the mark-helpful action
       try{ _lastAssistantQA.q = q; _lastAssistantQA.a = reply; }catch(_){ }
       questionInput.value='';
+      try{ if(typeof autoResizeQuestion === 'function') autoResizeQuestion(); }catch(_){ }
     }
 
     /* Feedback UI + teach (uses dialog)
@@ -1367,15 +2090,269 @@
       showThinking(true);
       await new Promise(r=>setTimeout(r,700));
       const res = analyzeCode(code);
+      try{ res.language = res.language || (codeInput && codeInput.dataset && codeInput.dataset.lang) || detectLanguage(code) || 'unknown'; }catch(_){ res.language = res.language || 'unknown'; }
       showThinking(false);
       analysisArea.textContent = 'Language: '+res.language+'\\nConfidence: '+Math.round(res.confidence*100)+'%\\n\\nIssues:\\n- '+res.issues.join('\\n- ')+'\\n\\nSuggested Fixes (preview):\\n'+res.fixed;
+      const mainPath = (codeInput.dataset && codeInput.dataset.path) || 'main.js';
+      res.base = code;
+      res.path = mainPath;
       analysisArea._last = res;
       recordConversation('user-code', code);
       recordConversation('lumi-analysis', analysisArea.textContent);
     });
 
-    formatBtn.addEventListener('click', ()=>{ const code=codeInput.value||''; if(!code.trim()) return; const res=analyzeCode(code); codeInput.value=res.fixed; analysisArea.textContent='Applied basic formatting and fixes. Preview updated.'; });
-    applyFixBtn.addEventListener('click', ()=>{ if(analysisArea._last){ codeInput.value = analysisArea._last.fixed; say('Applied suggested fixes to the editor.',2000,{feedback:false}); } else say('No suggested fix available yet.',2000,{feedback:false}); });
+    // --- Snapshot management: multi-file project workspaces persisted to localStorage ---
+    const SNAP_KEY = 'lumi_snapshots_v1';
+    const PROJECT_FILES_KEY = 'project_files_v1';
+
+    function loadSnapshots(){ try{ const raw = JSON.parse(localStorage.getItem(SNAP_KEY)||'[]'); // migrate old single-file snapshots to project format
+        if(Array.isArray(raw)){
+          const migrated = raw.map(s => {
+            if(s && (s.code !== undefined) && !s.files){
+              return { id: s.id || ('snap_'+Date.now()), name: s.name || 'Snapshot', t: s.t || Date.now(), files: [{ path: s.path || 'main.js', code: s.code||'', lang: s.lang || detectLanguage(s.code||''), base: s.base || s.code||'' }] };
+            }
+            return s;
+          });
+          return migrated;
+        }
+        return [];
+      }catch(e){ console.warn('loadSnapshots failed', e); return []; } }
+
+    function saveSnapshots(snaps){ try{ localStorage.setItem(SNAP_KEY, JSON.stringify(snaps)); }catch(e){ console.warn('saveSnapshots failed', e); } }
+
+    // Project files management (simple single-folder file list persisted locally)
+    function loadProjectFiles(){ try{ return JSON.parse(localStorage.getItem(PROJECT_FILES_KEY) || '[]'); }catch(e){ return []; } }
+    function saveProjectFiles(files){ try{ localStorage.setItem(PROJECT_FILES_KEY, JSON.stringify(files)); }catch(e){ console.warn('saveProjectFiles failed', e); } }
+
+    // Basic three-way line-oriented merge. Returns merged string; conflicts are marked.
+    function threeWayMerge(base, local, remote){
+      base = (base||'').split('\n');
+      local = (local||'').split('\n');
+      remote = (remote||'').split('\n');
+      const max = Math.max(base.length, local.length, remote.length);
+      const out = [];
+      for(let i=0;i<max;i++){
+        const b = base[i]===undefined? '': base[i];
+        const l = local[i]===undefined? '': local[i];
+        const r = remote[i]===undefined? '': remote[i];
+        if(l === r){ out.push(l); continue; }
+        if(l === b && r !== b){ out.push(r); continue; }
+        if(r === b && l !== b){ out.push(l); continue; }
+        // conflict: include both
+        out.push('<<<<<<< LOCAL');
+        out.push(l);
+        out.push('=======');
+        out.push(r);
+        out.push('>>>>>>> REMOTE');
+      }
+      return out.join('\n');
+    }
+
+    function createSnapshot(name, files){ try{
+      const snaps = loadSnapshots();
+      const projectFiles = Array.isArray(files) ? files : loadProjectFiles();
+      // Ensure at least one file (current editor) exists
+      if(!projectFiles.length){ projectFiles.push({ path: 'main.js', code: (codeInput.value||''), lang: (codeInput.dataset && codeInput.dataset.lang) || detectLanguage(codeInput.value||''), base: (codeInput.value||'') }); }
+      const s = { id: 'snap_' + Date.now(), name: name || ('Snapshot ' + new Date().toISOString()), files: projectFiles.map(f=> ({ path: f.path||'file', code: f.code||'', lang: f.lang||detectLanguage(f.code||''), base: f.base || (f.code||'') })), t: Date.now() };
+      snaps.unshift(s); if(snaps.length>100) snaps.pop(); saveSnapshots(snaps); renderSnapshotList(); return s;
+    }catch(e){ console.warn('createSnapshot failed', e); return null; } }
+
+    function deleteSnapshot(id){ try{ let snaps = loadSnapshots(); snaps = snaps.filter(s=>s.id!==id); saveSnapshots(snaps); renderSnapshotList(); }catch(e){ console.warn('deleteSnapshot failed', e);} }
+
+    // apply snapshot: supports modes 'replace' (overwrite), 'merge' (three-way), 'append' (concatenate)
+    function applySnapshot(id, opts){ try{ const snaps = loadSnapshots(); const s = snaps.find(x=>x.id===id); if(!s) return false; const mode = (opts && opts.mode) || 'merge'; const currentFiles = loadProjectFiles(); // map by path
+      const fileMap = Object.create(null); currentFiles.forEach(f=> fileMap[f.path] = f);
+      // helper to write back to current workspace (update project files + main editor if path matches)
+      function writeFile(path, newCode, lang){ if(fileMap[path]){ fileMap[path].code = newCode; if(lang) fileMap[path].lang = lang; } else { fileMap[path] = { path, code: newCode, lang: lang||detectLanguage(newCode||'') }; }
+        // if path matches main editor path, update textarea
+        const mainPath = (codeInput.dataset && codeInput.dataset.path) || 'main.js';
+        if(path === mainPath){ codeInput.value = newCode; codeInput.dataset.lang = lang || detectLanguage(newCode||''); }
+      }
+
+      const conflictCandidates = [];
+      for(const sf of (s.files||[])){
+        const cur = fileMap[sf.path] || { path: sf.path, code: '', lang: '' };
+        if(mode === 'replace'){
+          writeFile(sf.path, sf.code, sf.lang);
+        } else if(mode === 'append'){
+          writeFile(sf.path, (cur.code || '') + '\n\n' + (sf.code||''), sf.lang || cur.lang);
+        } else { // merge
+          const merged = threeWayMerge(sf.base||'', cur.code||'', sf.code||'');
+          // if merged contains conflict markers, queue for interactive resolution
+          if(typeof merged === 'string' && /<<<<<<< LOCAL/.test(merged)){
+            conflictCandidates.push({ path: sf.path, merged, lang: sf.lang || cur.lang, base: sf.base || '' });
+          } else {
+            writeFile(sf.path, merged, sf.lang || cur.lang);
+          }
+        }
+      }
+
+      // If there are conflicts, present an interactive resolver sequentially
+      if(conflictCandidates.length){
+        let idx = 0;
+        const resolveNext = ()=>{
+          if(idx >= conflictCandidates.length){ // done
+            const outFiles = Object.keys(fileMap).map(k=> fileMap[k]); saveProjectFiles(outFiles); renderProjectFilesUI(); analysisArea.textContent = 'Applied snapshot with conflicts resolved: ' + s.name; return true; }
+          const c = conflictCandidates[idx]; showConflictResolver(c.path, c.merged, (resolvedCode)=>{ try{ writeFile(c.path, resolvedCode, c.lang); idx++; resolveNext(); }catch(e){ console.warn(e); idx++; resolveNext(); } });
+        };
+        resolveNext();
+        return true;
+      }
+
+      // persist project files back when no interactive conflicts
+      const outFiles = Object.keys(fileMap).map(k=> fileMap[k]); saveProjectFiles(outFiles); renderProjectFilesUI(); analysisArea.textContent = 'Applied snapshot: ' + s.name; return true; }catch(e){ console.warn('applySnapshot failed', e); return false;} }
+
+    // Conflict resolver UI: shows merged text and helpers to replace individual conflict hunks with LOCAL or REMOTE
+    function showConflictResolver(path, mergedText, onResolve){ try{
+      const panel = document.getElementById('snapshotPanel'); if(!panel) return;
+      // create resolver container
+      let resolver = document.getElementById('conflictResolver');
+      if(resolver) resolver.remove();
+      resolver = document.createElement('div'); resolver.id = 'conflictResolver'; resolver.style.padding = '10px'; resolver.style.background = '#0b1220'; resolver.style.border = '1px solid rgba(255,255,255,0.04)'; resolver.style.marginTop = '8px';
+      resolver.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center"><strong style="color:#fff">Resolve conflicts: ${escapeHtml(path)}</strong><div><button id="cr-cancel" class="tiny">Cancel</button><button id="cr-accept" class="tiny" style="margin-left:8px">Accept</button></div></div><div style="margin-top:8px;color:#cbd5e1;font-size:12px">Preview and resolve conflict hunks. Use the helper buttons to replace the currently highlighted conflict with LOCAL or REMOTE content, or manually edit the preview.</div><textarea id="cr-preview" style="width:100%;height:360px;margin-top:8px;font-family:monospace">${escapeHtml(mergedText)}</textarea><div style="margin-top:8px;display:flex;gap:8px"><button id="cr-next" class="tiny">Next Conflict</button><button id="cr-local" class="tiny">Replace with LOCAL</button><button id="cr-remote" class="tiny">Replace with REMOTE</button><button id="cr-both" class="tiny">Replace with BOTH</button></div>`;
+      panel.appendChild(resolver);
+
+      const preview = resolver.querySelector('#cr-preview'); const btnNext = resolver.querySelector('#cr-next'); const btnLocal = resolver.querySelector('#cr-local'); const btnRemote = resolver.querySelector('#cr-remote'); const btnBoth = resolver.querySelector('#cr-both'); const btnAccept = resolver.querySelector('#cr-accept'); const btnCancel = resolver.querySelector('#cr-cancel');
+
+      function findNextConflict(fromIndex){ const re = /<<<<<<< LOCAL\n([\s\S]*?)\n=======\n([\s\S]*?)\n>>>>>>> REMOTE/; re.lastIndex = fromIndex || 0; const s = preview.value.slice(fromIndex||0); const m = s.match(re); if(!m) return null; const absIndex = (fromIndex||0) + s.indexOf(m[0]); return { index: absIndex, match: m, length: m[0].length }; }
+
+      let lastPos = 0;
+      btnNext.addEventListener('click', ()=>{ try{ const found = findNextConflict(lastPos); if(!found){ alert('No more conflicts.'); return; } preview.focus(); preview.setSelectionRange(found.index, found.index + found.length); lastPos = found.index + found.length; }catch(e){ console.warn(e); } });
+
+      function replaceCurrent(mode){ try{ const text = preview.value; const re = /<<<<<<< LOCAL\n([\s\S]*?)\n=======\n([\s\S]*?)\n>>>>>>> REMOTE/; const m = re.exec(text); if(!m) return; const start = m.index; const end = m.index + m[0].length; let replacement = '';
+          if(mode === 'local') replacement = m[1]; else if(mode === 'remote') replacement = m[2]; else if(mode === 'both') replacement = m[1] + '\n' + m[2];
+          preview.value = text.slice(0,start) + replacement + text.slice(end);
+      }catch(e){ console.warn(e); } }
+
+      btnLocal.addEventListener('click', ()=> replaceCurrent('local'));
+      btnRemote.addEventListener('click', ()=> replaceCurrent('remote'));
+      btnBoth.addEventListener('click', ()=> replaceCurrent('both'));
+
+      btnAccept.addEventListener('click', ()=>{ try{ const resolved = preview.value; resolver.remove(); onResolve(resolved); }catch(e){ console.warn(e); } });
+      btnCancel.addEventListener('click', ()=>{ try{ resolver.remove(); // abort: do not apply file
+          // continue by simply not writing this file (caller will proceed)
+        }catch(e){ console.warn(e); } });
+    }catch(e){ console.warn('showConflictResolver failed', e); } }
+
+    function renderSnapshotList(){ try{ const listEl = document.getElementById('snapshotList'); if(!listEl) return; const snaps = loadSnapshots(); if(!snaps.length){ listEl.innerHTML = '<div style="color:var(--muted)">No snapshots yet.</div>'; return; }
+      let html=''; for(const s of snaps){ html += `<div style="padding:8px;border-bottom:1px solid rgba(255,255,255,0.03)"><div style="font-size:12px;color:var(--muted)">${escapeHtml(new Date(s.t).toLocaleString())} — <strong>${escapeHtml(s.name)}</strong></div>`;
+        // file list preview
+        html += `<div style="margin-top:6px">`;
+        for(const f of (s.files||[])){
+          html += `<div style="margin-top:6px;white-space:pre-wrap;font-family:monospace;font-size:12px;color:#cfe8ff;max-height:64px;overflow:auto"><strong>${escapeHtml(f.path)}</strong> — ${escapeHtml((f.code||'').slice(0,300))}${(f.code && f.code.length>300 ? '…' : '')}</div>`;
+        }
+        html += `</div><div style="display:flex;gap:6px;justify-content:flex-end;margin-top:6px"><button class="tiny snap-apply" data-id="${s.id}">Merge</button><button class="tiny snap-apply-replace" data-id="${s.id}">Replace</button><button class="tiny snap-delete" data-id="${s.id}">Delete</button></div></div>`;
+      }
+      listEl.innerHTML = html;
+      const applies = listEl.querySelectorAll('.snap-apply'); applies.forEach(b=> b.addEventListener('click', ()=>{ try{ const id=b.dataset.id; if(!id) return; showDialog('Apply snapshot (three-way merge)? Type OK to confirm.','OK').then(ans=>{ if(ans){ applySnapshot(id, {mode:'merge'}); renderSnapshotList(); } }); }catch(e){ console.warn(e); } }));
+      const replaces = listEl.querySelectorAll('.snap-apply-replace'); replaces.forEach(b=> b.addEventListener('click', ()=>{ try{ const id=b.dataset.id; if(id){ applySnapshot(id, {mode:'replace'}); renderSnapshotList(); } }catch(e){ console.warn(e); } }));
+      const dels = listEl.querySelectorAll('.snap-delete'); dels.forEach(b=> b.addEventListener('click', ()=>{ try{ const id=b.dataset.id; if(!id) return; if(!confirm('Delete snapshot?')) return; deleteSnapshot(id); }catch(e){ console.warn(e); } }));
+    }catch(e){ console.warn('renderSnapshotList failed', e);} }
+
+    // Project files UI (simple file-tree manager inside snapshotPanel)
+    function renderProjectFilesUI(){ try{ const panel = document.getElementById('snapshotPanel'); if(!panel) return; let mgr = document.getElementById('projectFilesManager'); if(!mgr){ mgr = document.createElement('div'); mgr.id = 'projectFilesManager'; mgr.style.padding = '8px'; mgr.style.borderTop = '1px solid rgba(255,255,255,0.03)'; panel.appendChild(mgr); }
+      const files = loadProjectFiles(); let html = '<div style="display:flex;align-items:center;justify-content:space-between"><strong>Project Files</strong><div><button id="addProjectFile" class="tiny">Add File</button><button id="saveProjectFiles" class="tiny">Save Files</button></div></div>';
+      if(!files.length) html += '<div style="color:var(--muted);margin-top:8px">No project files. Add files to create multi-file snapshots.</div>';
+      for(const f of files){ html += `<div style="padding:6px;border-bottom:1px solid rgba(255,255,255,0.03);display:flex;gap:8px;align-items:flex-start"><div style="flex:1"><div style="font-size:12px;color:var(--muted)">${escapeHtml(f.path)}</div><textarea class="project-file-code" data-path="${escapeHtml(f.path)}" style="width:100%;height:120px;font-family:monospace;margin-top:6px">${escapeHtml(f.code||'')}</textarea></div><div style="display:flex;flex-direction:column;gap:6px"><button class="tiny pf-delete" data-path="${escapeHtml(f.path)}">Delete</button></div></div>`; }
+      mgr.innerHTML = html;
+      // attach handlers
+      const addBtn = document.getElementById('addProjectFile'); if(addBtn) addBtn.onclick = async ()=>{ try{ const name = await showDialog('New file path?','newfile.txt'); if(!name) return; const files = loadProjectFiles(); files.push({ path: name, code: '' }); saveProjectFiles(files); renderProjectFilesUI(); }catch(e){ console.warn(e);} };
+      const saveBtn = document.getElementById('saveProjectFiles'); if(saveBtn) saveBtn.onclick = ()=>{ try{ const areas = mgr.querySelectorAll('.project-file-code'); const files = []; areas.forEach(a=> files.push({ path: a.dataset.path, code: (a.value||''), lang: detectLanguage(a.value||'') })); saveProjectFiles(files); say('Project files saved.',1500,{feedback:false}); renderProjectFilesUI(); }catch(e){ console.warn(e);} };
+      const dels = mgr.querySelectorAll('.pf-delete'); dels.forEach(b=> b.addEventListener('click', ()=>{ try{ const p = b.dataset.path; if(!p) return; let files = loadProjectFiles(); files = files.filter(x=>x.path !== p); saveProjectFiles(files); renderProjectFilesUI(); }catch(e){ console.warn(e);} }));
+    }catch(e){ console.warn('renderProjectFilesUI failed', e); } }
+
+    // Snapshot buttons
+    const saveSnapshotBtn = document.getElementById('saveSnapshot');
+    const openSnapshotsBtn = document.getElementById('openSnapshots');
+    const closeSnapshotsBtn = document.getElementById('closeSnapshots');
+    const saveSnapshotQuick = document.getElementById('saveSnapshotQuick');
+    const downloadSnapshotsBtn = document.getElementById('downloadSnapshots');
+    if(saveSnapshotBtn) saveSnapshotBtn.addEventListener('click', async ()=>{ try{ const name = await showDialog('Snapshot name?','My Snapshot'); if(name){ createSnapshot(name); say('Snapshot saved.',2000,{feedback:false}); } else say('Snapshot canceled.',1200,{feedback:false}); }catch(e){ console.warn(e);} });
+    if(saveSnapshotQuick) saveSnapshotQuick.addEventListener('click', ()=>{ try{ createSnapshot(); say('Snapshot saved (quick).',1500,{feedback:false}); }catch(e){ console.warn(e);} });
+    if(openSnapshotsBtn) openSnapshotsBtn.addEventListener('click', ()=>{ try{ document.getElementById('snapshotPanel').style.display='block'; renderSnapshotList(); renderProjectFilesUI(); }catch(e){} });
+    if(closeSnapshotsBtn) closeSnapshotsBtn.addEventListener('click', ()=>{ try{ document.getElementById('snapshotPanel').style.display='none'; }catch(e){} });
+    if(downloadSnapshotsBtn) downloadSnapshotsBtn.addEventListener('click', ()=>{ try{ const snaps = loadSnapshots(); const blob = new Blob([JSON.stringify(snaps,null,2)],{type:'application/json'}); const url = URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='lumi_snapshots.json'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url); say('Snapshots exported.',2000,{feedback:false}); }catch(e){ console.warn(e);} });
+
+    // Assistant hooks for programmatic snapshot access + project file APIs
+    try{ if(!window.lumi) window.lumi = {};
+      window.lumi.saveSnapshot = async function(name){ return createSnapshot(name); };
+      window.lumi.listSnapshots = function(){ return loadSnapshots(); };
+      window.lumi.applySnapshot = function(id, opts){ return applySnapshot(id, opts); };
+      window.lumi.saveProjectFiles = function(files){ try{ saveProjectFiles(files || loadProjectFiles()); return {ok:true}; }catch(e){ return {ok:false,error:e.toString()}; } };
+      window.lumi.listProjectFiles = function(){ return loadProjectFiles(); };
+    }catch(e){ console.warn('exposing snapshot hooks failed', e); }
+
+    // Editor runtime contract for enhanced React components (mount/update callbacks)
+    try{
+      if(!window.editorRuntime) window.editorRuntime = {};
+      // mount(mountElement, options) -> { ready:true }
+      window.editorRuntime.mount = window.editorRuntime.mount || (async function(mountEl, opts){
+        // default host: wire textarea to behave like a file-based editor
+        try{
+          // ensure codeInput change dispatches file updates
+          codeInput.addEventListener('input', ()=>{
+            const mainPath = (codeInput.dataset && codeInput.dataset.path) || 'main.js';
+            const files = loadProjectFiles(); const f = files.find(x=>x.path===mainPath);
+            if(f){ f.code = codeInput.value; saveProjectFiles(files); }
+            if(window.editorRuntime._onFileChange) window.editorRuntime._onFileChange(mainPath, codeInput.value);
+          });
+        }catch(e){ }
+        return { ready: true };
+      });
+      window.editorRuntime.updateFiles = window.editorRuntime.updateFiles || function(files){ try{ if(!Array.isArray(files)) return; // write into project files and update main editor if necessary
+          saveProjectFiles(files.map(f=>({ path: f.path, code: f.code, lang: f.lang||detectLanguage(f.code||'') })));
+          const mainPath = (codeInput.dataset && codeInput.dataset.path) || 'main.js';
+          const main = files.find(f=>f.path === mainPath);
+          if(main) { codeInput.value = main.code; codeInput.dataset.lang = main.lang || detectLanguage(main.code||''); }
+          renderProjectFilesUI();
+        }catch(e){ console.warn('editorRuntime.updateFiles failed', e); } };
+      window.editorRuntime.onFileChange = window.editorRuntime.onFileChange || function(cb){ window.editorRuntime._onFileChange = cb; };
+      window.editorRuntime.requestAnalyze = window.editorRuntime.requestAnalyze || function(path){ try{ const files = loadProjectFiles(); const f = files.find(x=>x.path===path); if(!f) return null; const res = analyzeCode(f.code||''); res.language = res.language || f.lang || detectLanguage(f.code||''); return res; }catch(e){ return null; } };
+    }catch(e){ console.warn('editorRuntime init failed', e); }
+
+    function updateMainProjectFile(newCode, newLang){
+      try{
+        const mainPath = (codeInput.dataset && codeInput.dataset.path) || 'main.js';
+        const files = loadProjectFiles();
+        const f = files.find(x=>x.path === mainPath);
+        if(f){ f.code = newCode; f.lang = newLang || detectLanguage(newCode||''); f.base = newCode; }
+        else files.push({ path: mainPath, code: newCode, lang: newLang || detectLanguage(newCode||''), base: newCode });
+        saveProjectFiles(files);
+      }catch(_){ }
+    }
+
+    formatBtn.addEventListener('click', ()=>{
+      const code=codeInput.value||''; if(!code.trim()) return;
+      const res=analyzeCode(code);
+      codeInput.value=res.fixed;
+      updateMainProjectFile(res.fixed, res.language || (codeInput.dataset && codeInput.dataset.lang));
+      analysisArea.textContent='Applied basic formatting and fixes. Preview updated.';
+    });
+
+    applyFixBtn.addEventListener('click', ()=>{
+      if(!analysisArea._last){ say('No suggested fix available yet.',2000,{feedback:false}); return; }
+      const last = analysisArea._last;
+      const current = codeInput.value || '';
+      const base = last.base || current;
+      const fixed = last.fixed || current;
+      let merged = fixed;
+      if(base && current && fixed && current !== base){
+        merged = threeWayMerge(base, current, fixed);
+      }
+      if(/<<<<<<< LOCAL/.test(merged)){
+        showConflictResolver(last.path || ((codeInput.dataset && codeInput.dataset.path) || 'main.js'), merged, (resolved)=>{
+          codeInput.value = resolved;
+          updateMainProjectFile(resolved, last.language || (codeInput.dataset && codeInput.dataset.lang));
+          analysisArea._last = Object.assign({}, last, { base: resolved });
+          say('Applied suggested fixes with conflicts resolved.',2000,{feedback:false});
+        });
+        return;
+      }
+      codeInput.value = merged;
+      updateMainProjectFile(merged, last.language || (codeInput.dataset && codeInput.dataset.lang));
+      analysisArea._last = Object.assign({}, last, { base: merged });
+      say('Applied suggested fixes to the editor.',2000,{feedback:false});
+    });
 
     openCode.addEventListener('click', ()=> codePanel.style.display='block');
     closeCode.addEventListener('click', ()=> codePanel.style.display='none');
@@ -1393,7 +2370,15 @@
     closeSettings.addEventListener('click', ()=> settingsPanel.style.display='none');
     if (openPersonality) openPersonality.addEventListener('click', ()=>{ try{ showSettingsTab('personality'); if(settingsPanel) settingsPanel.style.display='block'; }catch(e){ console.warn(e); } });
     if (closePersonality) closePersonality.addEventListener('click', ()=>{ try{ if(settingsPanel) settingsPanel.style.display='none'; }catch(e){} });
-    savePersona.addEventListener('click', ()=>{ const p={name: (personaName.value||'Lumi'), tone: (personaTone.value||'playful · curious · helpful'), interests: (personaInterests.value||'coding,cats')}; savePersonaToStorage(p, {origin:'manual'}); say('Persona saved.',2000,{feedback:false}); });
+    savePersona.addEventListener('click', ()=>{
+      try{
+        // Users may edit name/interests, but tone is controlled by Lumi herself.
+        const existing = loadPersona() || {};
+        const p = { name: (personaName.value||existing.name||'Lumi'), tone: existing.tone || 'playful', interests: (personaInterests.value||existing.interests||'coding,cats') };
+        savePersonaToStorage(p, {origin:'manual'});
+        say('Persona saved (tone is managed by Lumi).',2000,{feedback:false});
+      }catch(e){ console.warn('savePersona handler failed', e); }
+    });
     resetPersona.addEventListener('click', ()=>{ localStorage.removeItem(PERSONA_KEY); const p=defaultPersona(); savePersonaToStorage(p, {origin:'manual', note:'reset'}); say('Persona reset.',2000,{feedback:false}); });
 
     const openPersonaHistory = document.getElementById('openPersonaHistory');
@@ -1487,24 +2472,56 @@
     // init
     // migrate legacy localStorage keys if present
     try{ migrateOldLocalStorage(); }catch(e){ console.warn('migration failed', e); }
-    initializeSeedKB();
+    // purge legacy seed/demo KB entries that can poison self-learn
+    try{ const kb0 = loadKB(); const kb1 = sanitizeKBObject(kb0); if(((kb1.qa||[]).length) !== ((kb0.qa||[]).length)){ saveKBLocalOnly(kb1); } }catch(_){ }
+    // initializeSeedKB(); // COMMENTED OUT to avoid frontend creating embeddings on startup
     applyPersona(loadPersona());
     updateScore();
     try{ fetchAndRenderMetrics(); setInterval(fetchAndRenderMetrics, 10000); }catch(_){ }
     // ensure KB entries have embeddings (migrate)
+    /*
     try{
       const kb = loadKB(); let changed = false;
       kb.qa = kb.qa || [];
       for(const e of kb.qa){ if(!e.embedding){ try{ e.embedding = computeEmbedding((e.q||'') + ' ' + (e.a||'')); changed = true; }catch(_){} } }
       if(changed) saveKB(kb);
     }catch(e){ console.warn('kb migrate failed', e); }
+    */
     window.addEventListener('load', ()=>{ try{ const n = (loadPersona && loadPersona().name) || 'Lumi'; say(n + ' is awake and ready — ask me about code.',4200,{feedback:false}); }catch(e){ say('Lumi is awake and ready — ask me about code.',4200,{feedback:false}); } });
 
+    // Attempt to mount a React-based enhanced editor (if dev bundle exists). Falls back to textarea.
+    try{
+      (async ()=>{
+        if(window.React && window.ReactDOM){
+          try{
+            const path = './dist/components/CodeEditorEnhanced.js';
+            const mod = await import(path);
+            const Comp = mod && mod.default ? mod.default : null;
+            const mountEl = document.getElementById('reactEditorMount');
+            if(Comp && mountEl){
+              mountEl.style.display = 'block';
+              // create a wrapper that proxies textarea <-> react component
+              const onChange = (v)=>{ try{ if(codeInput) codeInput.value = v; }catch(_){ } };
+              const props = { value: (codeInput && codeInput.value) || '', language: (codeInput && codeInput.dataset && codeInput.dataset.lang) || detectLanguage(codeInput && codeInput.value||''), onChange };
+              try{ window.ReactDOM.render(window.React.createElement(Comp, props), mountEl); window._reactEditorMounted = true; }
+              catch(e){ console.warn('React mount failed', e); }
+
+              // provide a host->react event dispatch function; React component may listen for 'host-update'
+              window._reactEditorUpdate = function(v){ try{ mountEl.dispatchEvent(new CustomEvent('host-update',{detail:v})); }catch(e){} };
+
+              // keep React in sync when textarea changes (calls host update dispatcher)
+              codeInput && codeInput.addEventListener('input', (ev)=>{ try{ const v = codeInput.value; if(window._reactEditorMounted){ try{ window._reactEditorUpdate(v); }catch(_){ } } }catch(_){ } });
+            }
+          }catch(e){ /* ignore missing dev component */ }
+        }
+      })();
+    }catch(e){ }
+
     if(!window.lumi){ window.lumi = { saveKnowledge:(d)=>{ const kb=loadKB(); kb.qa=(d.qa||kb.qa); saveKB(kb); }, loadKnowledge:()=>loadKB(), shutdown:()=>{ const evt=new CustomEvent('lumi-shutdown'); window.dispatchEvent(evt); } }; }
-    window.addEventListener('lumi-shutdown', ()=>{ say('Shutdown requested',2000,{feedback:false}); setTimeout(()=>window.close(),300); });
+    window.addEventListener('lumi-shutdown', ()=>{ try{ archiveCurrentSession('session_shutdown'); }catch(_){ } say('Shutdown requested',2000,{feedback:false}); setTimeout(()=>window.close(),300); });
 
     // autosave on unload
-    window.addEventListener('beforeunload', ()=>{ try{ localStorage.setItem(KB_KEY, JSON.stringify(loadKB())); }catch(e){} });
+    window.addEventListener('beforeunload', ()=>{ try{ archiveCurrentSession('session_close'); }catch(_){ } try{ localStorage.setItem(KB_KEY, JSON.stringify(loadKB())); }catch(e){} });
 
     // Learning event toast: show brief notification when main process reports KB merges
     (function(){

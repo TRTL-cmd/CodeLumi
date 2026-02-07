@@ -2,6 +2,8 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { think } from '../core/brain/index';
 import { BrowserWindow } from 'electron';
+import { getLumiPaths } from '../core/paths';
+import * as Sanitizer from '../security/sanitizer';
 
 type DeepAgentOptions = {
   userDataPath: string;
@@ -75,18 +77,12 @@ export class DeepLearningAgent {
 
   async stop() {
     try {
+      // Stop immediately: no new work, cancel timer, and exit fast.
       this.stopping = true;
+      this.paused = true;
       if (this.timer) { clearInterval(this.timer); this.timer = null; }
       this.running = false;
-      // wait for in-flight operations to finish (bounded)
-      const start = Date.now();
-      const timeout = 5000; // ms
-      while (this.activeOps > 0 && (Date.now() - start) < timeout) {
-        // eslint-disable-next-line no-await-in-loop
-        await new Promise(r => setTimeout(r, 150));
-      }
-      this.stopping = false;
-      return { ok: true, waitedMs: Math.min(Date.now() - start, timeout) };
+      return { ok: true, stopped: true };
     } catch (e) {
       return { ok: false, error: String(e) };
     }
@@ -160,7 +156,9 @@ export class DeepLearningAgent {
       // sanitize
       const redacted = raw.replace(/([a-zA-Z0-9._%+-]+)@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g, '[REDACTED_EMAIL]')
         .replace(new RegExp(path.resolve(this.projectRoot).replace(/\\/g,'\\\\'), 'g'), '[PROJECT_ROOT]')
-        .replace(/[A-Z]:\\[\\\S\s]*/g, '[REDACTED_PATH]');
+        .replace(/\\\\[^\s\\/]+\\[^\s]+/g, '[REDACTED_PATH]')
+        .replace(/[A-Z]:\\[\\\S\s]*/g, '[REDACTED_PATH]')
+        .replace(/\/(Users|home)\/[^\s/]+\/[^\s]*/g, '/[REDACTED_PATH]');
 
       const excerpt = redacted.slice(0, 8000);
       const entry = { id: `deep_${Date.now()}_${Math.random().toString(16).slice(2,8)}`, path: pth.replace(this.projectRoot, '[PROJECT_ROOT]'), excerpt, mtime, date: new Date().toISOString() };
@@ -196,10 +194,16 @@ export class DeepLearningAgent {
       finally { this.activeOps = Math.max(0, this.activeOps - 1); }
 
       if (suggestions && suggestions.length) {
-        const sugFile = path.join(this.userDataPath, 'self-learn', 'selflearn_suggestions.jsonl');
+        const sugFile = getLumiPaths().stagingFile;
+        await fs.mkdir(path.dirname(sugFile), { recursive: true }).catch(() => {});
         for (const s of suggestions) {
-          const out = Object.assign({ id: `sug_${Date.now()}_${Math.random().toString(16).slice(2,6)}`, path: pth.replace(this.projectRoot, '[PROJECT_ROOT]'), date: new Date().toISOString() }, s);
-          await fs.appendFile(sugFile, JSON.stringify(out) + '\n', 'utf8');
+          const out = Object.assign({ id: `sug_${Date.now()}_${Math.random().toString(16).slice(2,6)}`, path: pth, date: new Date().toISOString() }, s);
+          try {
+            const { appendStagingUnique } = await import('../core/security/staging-utils.js');
+            await appendStagingUnique(sugFile, out, { lookbackLines: 200, windowMs: 2 * 60 * 1000 });
+          } catch (_e) {
+            await fs.appendFile(sugFile, JSON.stringify({ id: out.id, path: out.path, date: out.date, line: out.line || null, message: out.message || out.suggestion || '[no-message]', severity: out.severity || out.priority || 'info' }) + '\n', 'utf8');
+          }
         }
         if (typeof sendEvent === 'function') sendEvent({ type: 'suggestion', path: pth, suggestions });
       }
@@ -234,11 +238,16 @@ export class DeepLearningAgent {
 
       if (!Array.isArray(suggestions) || suggestions.length === 0) return;
 
-      const suggestionsFile = path.join(this.userDataPath, 'self-learn', 'selflearn_suggestions.jsonl');
-      await fs.mkdir(path.join(this.userDataPath, 'self-learn'), { recursive: true });
+      const suggestionsFile = getLumiPaths().stagingFile;
+      await fs.mkdir(path.dirname(suggestionsFile), { recursive: true }).catch(() => {});
       for (const s of suggestions) {
-        const entry = { id: `sug_${Date.now()}_${Math.random().toString(36).substring(7)}`, timestamp: new Date().toISOString(), file: pth, suggestion: s.suggestion || '', priority: s.priority || 'medium', reasoning: s.reasoning || '', status: 'pending' };
-        try { await fs.appendFile(suggestionsFile, JSON.stringify(entry) + '\n', 'utf8'); } catch (_e) { }
+        const entry = { id: `sug_${Date.now()}_${Math.random().toString(36).substring(7)}`, timestamp: new Date().toISOString(), file: pth, suggestion: s.suggestion || '', priority: s.priority || 'medium' };
+        try {
+          const { appendStagingUnique } = await import('../core/security/staging-utils.js');
+          await appendStagingUnique(suggestionsFile, entry, { lookbackLines: 200, windowMs: 2 * 60 * 1000 });
+        } catch (_e) {
+          try { await fs.appendFile(suggestionsFile, JSON.stringify({ id: entry.id, path: entry.file || '', date: entry.timestamp || new Date().toISOString(), line: null, message: entry.suggestion || '[no-message]', severity: entry.priority || 'info' }) + '\n', 'utf8'); } catch (_e2) { }
+        }
       }
 
       console.log(`[DeepAgent] 💡 Generated ${suggestions.length} suggestions for ${path.basename(pth)}`);
@@ -326,18 +335,18 @@ export class DeepLearningAgent {
 
       // Fallback: write into userData/self-learn and top-level files
       try {
-        const dir = path.join(this.userDataPath, 'self-learn');
-        const kbFile = path.join(dir, 'lumi_knowledge.json');
-        try { await fs.mkdir(dir, { recursive: true }); } catch (_e) { }
+        const kbFile = getLumiPaths().knowledgeBase;
+        try { await fs.mkdir(path.dirname(kbFile), { recursive: true }); } catch (_e) { }
         let arr: any[] = [];
         try { const rawKb = await fs.readFile(kbFile, 'utf8'); arr = JSON.parse(rawKb || '[]'); } catch (_e) { arr = []; }
         for (const item of valid) {
           if (!item.q || !item.a) continue;
-          arr.push({ q: item.q, a: item.a, source: 'deep-learning', file: pth.replace(this.projectRoot, '[PROJECT_ROOT]'), confidence: item.confidence, learned: new Date().toISOString() });
+          const q = Sanitizer.redactPII(Sanitizer.sanitizeText(String(item.q || '')));
+          const a = Sanitizer.redactPII(Sanitizer.sanitizeText(String(item.a || '')));
+          arr.push({ q, a, source: 'deep-learning', file: pth.replace(this.projectRoot, '[PROJECT_ROOT]'), confidence: item.confidence, learned: new Date().toISOString() });
         }
         await fs.writeFile(kbFile, JSON.stringify(arr, null, 2), 'utf8');
-        try { const topKb = path.join(this.userDataPath, 'lumi_knowledge.json'); await fs.writeFile(topKb, JSON.stringify(arr, null, 2), 'utf8'); } catch (_e) { }
-        try { const repoTraining = path.join(process.cwd(), 'training'); await fs.mkdir(repoTraining, { recursive: true }); const trainingFile = path.join(repoTraining, 'lumi_knowledge.json'); await fs.writeFile(trainingFile, JSON.stringify(arr, null, 2), 'utf8'); } catch (_e) { }
+        try { const repoTraining = getLumiPaths().trainingDir; await fs.mkdir(repoTraining, { recursive: true }); const trainingFile = path.join(repoTraining, 'lumi_knowledge.json'); await fs.writeFile(trainingFile, JSON.stringify(arr, null, 2), 'utf8'); } catch (_e) { }
         console.log(`[DeepAgent] Fallback wrote ${valid.length} entries to ${kbFile}`);
       } catch (e:any) { console.error('[DeepAgent] Fallback KB write failed:', e?.message || e); }
 

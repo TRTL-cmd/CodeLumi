@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // bundle-three.js — copy three and GLTFLoader into ./vendor for offline use
 const fs = require('fs');
 const path = require('path');

@@ -1,5 +1,6 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { getLumiPaths, LumiPaths } from '../paths';
 
 export type Tone = {
   id: string;
@@ -15,8 +16,16 @@ export default class PersonalityManager {
     { id: 'concise', name: 'Concise', description: 'Short, to-the-point replies' }
   ];
 
-  constructor(userDataPath: string) {
-    this.filePath = path.join(userDataPath, 'personality.json');
+  constructor(userDataPathOrPaths?: string | LumiPaths) {
+    // Support both old API (userDataPath string) and new API (LumiPaths object)
+    if (typeof userDataPathOrPaths === 'string') {
+      // Legacy: keep old behavior
+      this.filePath = path.join(userDataPathOrPaths, 'personality.json');
+    } else {
+      // New: use centralized paths (personality goes to AppData)
+      const lumiPaths = userDataPathOrPaths || getLumiPaths();
+      this.filePath = path.join(lumiPaths.appDataPath, 'personality.json');
+    }
   }
 
   private async readState(): Promise<any> {

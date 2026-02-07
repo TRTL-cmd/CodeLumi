@@ -6,14 +6,21 @@ import { app, BrowserWindow, ipcMain } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { think, thinkStream, thinkChat } from './core/brain/index';
+import PersonalityEngine from './core/personality/PersonalityEngine';
 import MemoryStore from './core/memory/store';
 import { SignalProcessor } from './core/learning/processor';
 import * as InputValidation from './security/input_validation';
 import * as Threat from './security/threat_detection';
+import * as Sanitizer from './security/sanitizer';
 import { StagingManager } from './core/security/staging-manager';
 import DeepLearningAgent from './selflearning/safe-agent-deep';
 import KnowledgeProcessor from './core/learning/knowledge-processor';
 import PersonalityManager from './core/personality/manager';
+import { initializeArchivesHandlers } from './main/archives-handlers';
+import { getLumiPaths } from './core/paths';
+import { canonicalizeStagingEntry } from './core/security/staging-utils';
+
+let sessionStart = new Date();
 
 // Helper to recover common mojibake (UTF-8 bytes decoded as latin1)
 function fixEncodingAndNormalize(s: string): string {
@@ -55,24 +62,235 @@ function redactLogPath(p: string) {
   }catch(_){ return p; }
 }
 
+function sendCuratorEvent(type: string, data?: any) {
+  try {
+    const bw = BrowserWindow.getAllWindows()[0];
+    if (bw && bw.webContents && typeof bw.webContents.send === 'function') {
+      bw.webContents.send('lumi-learning-event', Object.assign({ type }, data || {}));
+    }
+  } catch (_e) { }
+}
+
+type PersonalityState = {
+  mood?: string;
+  intensity?: number;
+  rapport?: number;
+  refused?: boolean;
+  updatedAt?: string;
+};
+
+async function loadPersonalityState(): Promise<PersonalityState> {
+  try {
+    const p = path.join(getLumiPaths().projectUserDataDir, 'personality_state.json');
+    const raw = await fs.readFile(p, 'utf8');
+    return JSON.parse(raw || '{}');
+  } catch (_e) {
+    return { mood: 'neutral', intensity: 0.5, rapport: 0, refused: false };
+  }
+}
+
+async function savePersonalityState(state: PersonalityState) {
+  try {
+    const p = path.join(getLumiPaths().projectUserDataDir, 'personality_state.json');
+    await fs.mkdir(path.dirname(p), { recursive: true });
+    const out = Object.assign({}, state, { updatedAt: new Date().toISOString() });
+    await fs.writeFile(p, JSON.stringify(out, null, 2), 'utf8');
+  } catch (_e) { }
+}
+
+function isApology(text: string) {
+  return /\b(sorry|apolog|my bad|pardon)\b/i.test(text || '');
+}
+
+async function updatePersonalityFromText(text: string, source = 'user') {
+  try {
+    const st = await loadPersonalityState();
+    const engine = new PersonalityEngine({ mood: st.mood as any, intensity: typeof st.intensity === 'number' ? st.intensity : 0.5 });
+    const score = engine.analyzeSentiment(text || '');
+    if (isApology(text)) {
+      st.refused = false;
+      st.rapport = Math.min(1, (st.rapport || 0) + 0.2);
+    } else {
+      if (score > 0) st.rapport = Math.min(1, (st.rapport || 0) + 0.1);
+      if (score < 0) st.rapport = Math.max(-1, (st.rapport || 0) - 0.15);
+    }
+    engine.feed(text || '', source);
+    st.mood = (engine.getStats().mood as any) || st.mood;
+    st.intensity = engine.getStats().intensity || st.intensity;
+    if ((st.rapport || 0) < -0.6) st.refused = true;
+    await savePersonalityState(st);
+    return st;
+  } catch (_e) {
+    return { mood: 'neutral', intensity: 0.5, rapport: 0, refused: false } as PersonalityState;
+  }
+}
+
+async function applyToneToText(text: string) {
+  try {
+    const st = await loadPersonalityState();
+    const engine = new PersonalityEngine({ mood: st.mood as any, intensity: typeof st.intensity === 'number' ? st.intensity : 0.5 });
+    return engine.applyToneToResponse(text || '');
+  } catch (_e) { return text; }
+}
+
 app.whenReady().then(async () => {
+  sessionStart = new Date();
   createWindow();
+
+  // Initialize centralized path system
+  const lumiPaths = getLumiPaths();
+  (global as any).lumiPaths = lumiPaths;
+
+  // Check Ollama availability and notify user if offline
+  try {
+    const { ollama } = await import('./core/llm/ollama.js');
+    const ollamaAvailable = await ollama.isAvailable();
+    if (!ollamaAvailable) {
+      console.warn('⚠️  Ollama not detected at localhost:11434');
+      console.warn('   AI features will be unavailable until Ollama is running.');
+      console.warn('   Install: https://ollama.ai');
+      console.warn('   Then run: ollama pull gemma3:4b');
+      // Notify renderer
+      setTimeout(() => {
+        const bw = BrowserWindow.getAllWindows()[0];
+        if (bw && bw.webContents) {
+          bw.webContents.send('lumi-learning-event', {
+            type: 'ollama-offline',
+            message: 'Ollama not detected. AI features disabled. Install Ollama and run: ollama pull gemma3:4b',
+            timestamp: new Date().toISOString()
+          });
+        }
+      }, 2000);
+    } else {
+      console.log('✅ Ollama available');
+    }
+  } catch (e) {
+    console.warn('Failed to check Ollama availability:', e);
+  }
+
+  // Ensure project-level staging file and archives directory exist
+  try {
+    await fs.mkdir(lumiPaths.archivesDir, { recursive: true });
+    await fs.mkdir(path.dirname(lumiPaths.stagingFile), { recursive: true });
+    const fh = await fs.open(lumiPaths.stagingFile, 'a');
+    await fh.close();
+
+    // One-time migration: if legacy training/staging.jsonl exists and root staging is empty, copy it.
+    try {
+      const migrationFlag = path.join(lumiPaths.projectUserDataDir, '.staging_migrated_v2');
+      const alreadyMigrated = await fs.access(migrationFlag).then(() => true).catch(() => false);
+      if (!alreadyMigrated) {
+        const legacyCandidates = [
+          path.join(lumiPaths.projectRoot, 'staging.jsonl'),
+          path.join(lumiPaths.trainingDir, 'staging.jsonl')
+        ];
+        const currentRaw = await fs.readFile(lumiPaths.stagingFile, 'utf8').catch(() => '');
+        if (!currentRaw.trim()) {
+          for (const legacyPath of legacyCandidates) {
+            const legacyRaw = await fs.readFile(legacyPath, 'utf8').catch(() => '');
+            if (legacyRaw.trim()) {
+              await fs.writeFile(lumiPaths.stagingFile, legacyRaw.trim() + '\n', 'utf8');
+              console.log('[Startup] Migrated legacy staging to project userData staging.jsonl');
+              break;
+            }
+          }
+        }
+        await fs.mkdir(lumiPaths.projectUserDataDir, { recursive: true });
+        await fs.writeFile(migrationFlag, new Date().toISOString(), 'utf8');
+      }
+    } catch (_e) { /* ignore migration failures */ }
+  } catch (e) {
+    console.warn('Failed to ensure staging/archives paths', e);
+  }
+
+  // One-time scrubber for staging + KB files
+  try {
+    const scrubFlag = path.join(lumiPaths.projectUserDataDir, '.pii_scrubbed_v1');
+    const alreadyScrubbed = await fs.access(scrubFlag).then(() => true).catch(() => false);
+    if (!alreadyScrubbed) {
+      // scrub staging.jsonl to canonical format
+      try {
+        const raw = await fs.readFile(lumiPaths.stagingFile, 'utf8').catch(() => '');
+        const lines = raw.split(/\r?\n/).filter(Boolean);
+        const out: string[] = [];
+        for (const ln of lines) {
+          try {
+            const obj = JSON.parse(ln);
+            const canonical = canonicalizeStagingEntry(obj);
+            if (canonical) out.push(JSON.stringify(canonical));
+          } catch (_e) { }
+        }
+        await fs.writeFile(lumiPaths.stagingFile, out.join('\n') + (out.length ? '\n' : ''), 'utf8');
+      } catch (_e) { }
+
+      // scrub KB files (userData + training)
+      const scrubKbFile = async (filePath: string) => {
+        try {
+          const rawKb = await fs.readFile(filePath, 'utf8');
+          let parsed: any = null;
+          try { parsed = JSON.parse(rawKb); } catch (_e) { parsed = null; }
+          const root = lumiPaths.projectRoot;
+          const scrubEntry = (entry: any) => {
+            const copy: any = Object.assign({}, entry || {});
+            const scrub = (key: string) => {
+              if (typeof copy[key] === 'string') {
+                copy[key] = Sanitizer.redactPII(Sanitizer.sanitizeText(copy[key]));
+              }
+            };
+            scrub('q');
+            scrub('a');
+            scrub('question');
+            scrub('answer');
+            scrub('input');
+            scrub('output');
+            scrub('message');
+            if (copy.file || copy.path) {
+              const p = String(copy.file || copy.path || '');
+              copy.file = p.includes(root) ? p.replace(root, '[PROJECT_ROOT]') : path.basename(p);
+              delete copy.path;
+            }
+            return copy;
+          };
+          if (Array.isArray(parsed)) {
+            const cleaned = parsed.map(scrubEntry);
+            await fs.writeFile(filePath, JSON.stringify(cleaned, null, 2), 'utf8');
+          } else if (parsed && Array.isArray(parsed.qa)) {
+            const cleaned = parsed.qa.map(scrubEntry);
+            const out = Object.assign({}, parsed, { qa: cleaned });
+            await fs.writeFile(filePath, JSON.stringify(out, null, 2), 'utf8');
+          }
+        } catch (_e) { }
+      };
+
+      await scrubKbFile(lumiPaths.userDataKnowledgeBase).catch(() => {});
+      await scrubKbFile(lumiPaths.knowledgeBase).catch(() => {});
+
+      await fs.writeFile(scrubFlag, new Date().toISOString(), 'utf8');
+    }
+  } catch (_e) { }
+
+  // Initialize archives handlers (CRITICAL: was missing!)
+  try {
+    initializeArchivesHandlers();
+    console.log('✅ Archives handlers initialized');
+  } catch (e) {
+    console.error('❌ Archives handlers init failed:', e);
+  }
 
   // instantiate file-backed memory store in user data
   try {
-    (global as any).lumiMemory = new MemoryStore(app.getPath('userData'));
+    (global as any).lumiMemory = new MemoryStore();
   } catch (e) { console.warn('MemoryStore init failed', e); }
 
   // instantiate KnowledgeProcessor to centralize KB writes from learning
   try {
-    (global as any).lumiKnowledgeProcessor = new KnowledgeProcessor(app.getPath('userData'));
+    (global as any).lumiKnowledgeProcessor = new KnowledgeProcessor();
     console.log('✅ KnowledgeProcessor instantiated');
-    console.log('ℹ️ userData path:', redactLogPath(app.getPath('userData')));
   } catch (e) { console.warn('KnowledgeProcessor init failed', e); }
 
   // Instantiate PersonalityManager to enforce single active tone
   try {
-    (global as any).lumiPersonalityManager = new PersonalityManager(app.getPath('userData'));
+    (global as any).lumiPersonalityManager = new PersonalityManager();
     console.log('✅ PersonalityManager instantiated');
   } catch (e) { console.warn('PersonalityManager init failed', e); }
 
@@ -116,13 +334,12 @@ app.whenReady().then(async () => {
   // START: Self-learning agent initialization (background scanner)
   try {
     try {
-        const progressFile = path.join(app.getPath('userData'), 'selflearn_progress.json');
         // load persisted selflearn config to decide whether to auto-start
         let slCfg: any = null;
-        try { const cfgFile = path.join(app.getPath('userData'), 'selflearn_config.json'); const rawCfg = await fs.readFile(cfgFile, 'utf8'); slCfg = JSON.parse(rawCfg || '{}'); } catch (_e) { slCfg = null; }
+        try { const cfgFile = lumiPaths.configFile; const rawCfg = await fs.readFile(cfgFile, 'utf8'); slCfg = JSON.parse(rawCfg || '{}'); } catch (_e) { slCfg = null; }
 
-        const agent = new DeepLearningAgent({
-        userDataPath: app.getPath('userData'),
+          const agent = new DeepLearningAgent({
+            userDataPath: lumiPaths.projectUserDataDir,
         // limit watch to project code and training assets to avoid scanning virtualenvs
         watchPaths: [path.join(process.cwd(), 'src'), path.join(process.cwd(), 'training'), path.join(process.cwd(), 'assets')],
         // deep-learn defaults: slow, thorough, persistent progress
@@ -194,8 +411,8 @@ ipcMain.handle('selflearn:status', async () => {
 
 ipcMain.handle('selflearn:getConfig', async () => {
   try {
-    const dir = app.getPath('userData');
-    const file = path.join(dir, 'selflearn_config.json');
+    const lumiPaths = getLumiPaths();
+    const file = lumiPaths.configFile;
     try {
       const raw = await fs.readFile(file, 'utf8');
       return { ok: true, config: JSON.parse(raw) };
@@ -205,8 +422,8 @@ ipcMain.handle('selflearn:getConfig', async () => {
 
 ipcMain.handle('selflearn:setConfig', async (_event, cfg: any) => {
   try {
-    const dir = app.getPath('userData');
-    const file = path.join(dir, 'selflearn_config.json');
+    const lumiPaths = getLumiPaths();
+    const file = lumiPaths.configFile;
     await fs.writeFile(file, JSON.stringify(cfg || {}, null, 2), 'utf8');
     // update agent watchPaths if present
     try {
@@ -258,24 +475,18 @@ ipcMain.handle('selflearn:runNow', async () => {
 // Suggestions: list and acknowledge
 ipcMain.handle('selflearn:listSuggestions', async () => {
   try {
-    const dir = app.getPath('userData');
-    const file = path.join(dir, 'self-learn', 'selflearn_suggestions.jsonl');
-    try {
-      const raw = await fs.readFile(file, 'utf8');
-      const lines = raw.split(/\r?\n/).filter(Boolean).map(l => { try { return JSON.parse(l); } catch (_e) { return null; } }).filter(Boolean);
-      return { ok: true, suggestions: lines };
-    } catch (e: any) {
-      if (e.code === 'ENOENT') return { ok: true, suggestions: [] };
-      throw e;
-    }
+    const items = await StagingManager.listPending();
+    return { ok: true, suggestions: items };
   } catch (e: any) { return { ok: false, error: e?.message || String(e) }; }
 });
 
 ipcMain.handle('selflearn:ackSuggestion', async (_event, id: string) => {
   try {
-    const dir = app.getPath('userData');
-    const file = path.join(dir, 'self-learn', 'selflearn_suggestions.jsonl');
-    const ackFile = path.join(dir, 'self-learn', 'selflearn_suggestions_ack.jsonl');
+    // Acknowledge by moving the entry out of the repo staging file and into
+    // a repo ack file. This keeps all suggestion state inside the project.
+    const lumiPaths = getLumiPaths();
+    const file = lumiPaths.stagingFile;
+    const ackFile = path.join(lumiPaths.projectUserDataDir, 'staging_ack.jsonl');
     try {
       const raw = await fs.readFile(file, 'utf8');
       const lines = raw.split(/\r?\n/).filter(Boolean);
@@ -288,7 +499,7 @@ ipcMain.handle('selflearn:ackSuggestion', async (_event, id: string) => {
             found = true;
             obj.acknowledgedAt = new Date().toISOString();
             await fs.appendFile(ackFile, JSON.stringify(obj) + '\n', 'utf8');
-            continue; // drop from suggestions file
+            continue; // drop from staging file
           }
         } catch (_e) { }
         outLines.push(ln);
@@ -309,8 +520,8 @@ ipcMain.handle('selflearn:getProgress', async () => {
     if (!agent) return { ok: false, error: 'agent-not-initialized' };
     if (typeof agent.getProgress === 'function') return await agent.getProgress();
     // fallback: read progress file directly
-    const dir = app.getPath('userData');
-    const file = path.join(dir, 'self-learn', 'selflearn_progress.json');
+    const lumiPaths = getLumiPaths();
+    const file = path.join(lumiPaths.projectUserDataDir, 'self-learn', 'selflearn_progress.json');
     try {
       const raw = await fs.readFile(file, 'utf8');
       return { ok: true, progress: JSON.parse(raw || '{}') };
@@ -321,7 +532,7 @@ ipcMain.handle('selflearn:getProgress', async () => {
 // List semantic duplicates generated by dedupe script (reads migration log)
 ipcMain.handle('selflearn:list-duplicates', async () => {
   try {
-    const repoTraining = path.join(process.cwd(), 'training');
+    const repoTraining = getLumiPaths().trainingDir;
     const logFile = path.join(repoTraining, 'lumi_knowledge.dedupe.log.jsonl');
     try {
       const raw = await fs.readFile(logFile, 'utf8');
@@ -346,7 +557,7 @@ ipcMain.handle('selflearn:list-duplicates', async () => {
 // Apply review action: currently supports replacing the training KB with the deduped file (backup preserved)
 ipcMain.handle('selflearn:apply-review', async (_event, opts: any) => {
   try {
-    const repoTraining = path.join(process.cwd(), 'training');
+    const repoTraining = getLumiPaths().trainingDir;
     const dedupFile = path.join(repoTraining, 'lumi_knowledge.deduped.json');
     const kbFile = path.join(repoTraining, 'lumi_knowledge.json');
     // ensure dedup file exists
@@ -381,7 +592,7 @@ ipcMain.handle('selflearn:apply-review', async (_event, opts: any) => {
 // Apply group-based review decisions: remove entries by index (from dedupe log groups)
 ipcMain.handle('selflearn:apply-groups', async (_event, removeIndices: number[]) => {
   try {
-    const repoTraining = path.join(process.cwd(), 'training');
+    const repoTraining = getLumiPaths().trainingDir;
     const kbFile = path.join(repoTraining, 'lumi_knowledge.json');
     // read existing KB
     let raw: string;
@@ -421,16 +632,44 @@ app.on('window-all-closed', function () {
 // IPC handlers for persistence
 ipcMain.handle('lumi-save', async (event, data) => {
   try {
-    const dir = app.getPath('userData');
+    const dir = getLumiPaths().projectUserDataDir;
     const file = path.join(dir, 'lumi_knowledge.json');
-    await fs.writeFile(file, JSON.stringify(data, null, 2), 'utf-8');
+    const root = getLumiPaths().projectRoot;
+    const scrubEntry = (entry: any) => {
+      const copy: any = Object.assign({}, entry || {});
+      const scrub = (key: string) => {
+        if (typeof copy[key] === 'string') {
+          copy[key] = Sanitizer.redactPII(Sanitizer.sanitizeText(copy[key]));
+        }
+      };
+      scrub('q');
+      scrub('a');
+      scrub('question');
+      scrub('answer');
+      scrub('input');
+      scrub('output');
+      scrub('message');
+      if (copy.file || copy.path) {
+        const p = String(copy.file || copy.path || '');
+        copy.file = p.includes(root) ? p.replace(root, '[PROJECT_ROOT]') : path.basename(p);
+        delete copy.path;
+      }
+      return copy;
+    };
+    let toWrite: any = data;
+    if (Array.isArray(data)) {
+      toWrite = data.map(scrubEntry);
+    } else if (data && Array.isArray((data as any).qa)) {
+      toWrite = Object.assign({}, data, { qa: (data as any).qa.map(scrubEntry) });
+    }
+    await fs.writeFile(file, JSON.stringify(toWrite, null, 2), 'utf-8');
     // also attempt to write a copy into the project `training/` folder when available
     let trainingPath: string | null = null;
     try {
-      const repoTraining = path.join(process.cwd(), 'training');
+      const repoTraining = getLumiPaths().trainingDir;
       await fs.mkdir(repoTraining, { recursive: true });
       const trainingFile = path.join(repoTraining, 'lumi_knowledge.json');
-      await fs.writeFile(trainingFile, JSON.stringify(data, null, 2), 'utf-8');
+      await fs.writeFile(trainingFile, JSON.stringify(toWrite, null, 2), 'utf-8');
       trainingPath = trainingFile;
     } catch (e) {
       // ignore write failures to repo folder
@@ -443,7 +682,7 @@ ipcMain.handle('lumi-save', async (event, data) => {
 
 ipcMain.handle('lumi-load', async () => {
   try {
-    const dir = app.getPath('userData');
+    const dir = getLumiPaths().projectUserDataDir;
     const file = path.join(dir, 'lumi_knowledge.json');
     const raw = await fs.readFile(file, 'utf-8');
     return JSON.parse(raw);
@@ -464,7 +703,7 @@ ipcMain.handle('lumi-shutdown', async () => {
 // Return the Electron app userData path so renderer can locate files on disk
 ipcMain.handle('app:getUserDataPath', async () => {
   try {
-    return { ok: true, path: app.getPath('userData') };
+    return { ok: true, path: getLumiPaths().projectUserDataDir };
   } catch (e: any) { return { ok: false, error: e?.message || String(e) }; }
 });
 
@@ -496,8 +735,13 @@ ipcMain.handle('personality:set-tone', async () => {
 // Brain IPC: simple invoke for single-response generation
 ipcMain.handle('lumi-think', async (_event, prompt: string, options = {}) => {
   try {
+    const st = await updatePersonalityFromText(prompt || '', 'user');
+    if (st.refused && !isApology(prompt || '')) {
+      return { ok: true, output: "Let's keep it respectful. I'm happy to help when we're civil." };
+    }
     const out = await think(prompt, options);
-    return { ok: true, output: out };
+    const toned = await applyToneToText(out);
+    return { ok: true, output: toned };
   } catch (e: any) {
     return { ok: false, error: e?.message || String(e) };
   }
@@ -506,8 +750,15 @@ ipcMain.handle('lumi-think', async (_event, prompt: string, options = {}) => {
 // Brain IPC: chat-style
 ipcMain.handle('lumi-chat', async (_event, messages: any[], options = {}) => {
   try {
+    const lastUser = Array.isArray(messages) ? [...messages].reverse().find(m => m && m.role === 'user') : null;
+    const lastText = lastUser && lastUser.content ? String(lastUser.content) : '';
+    const st = await updatePersonalityFromText(lastText, 'user');
+    if (st.refused && !isApology(lastText || '')) {
+      return { ok: true, output: "Let's keep it respectful. I'm happy to help when we're civil." };
+    }
     const out = await thinkChat(messages, options);
-    return { ok: true, output: out };
+    const toned = await applyToneToText(out);
+    return { ok: true, output: toned };
   } catch (e: any) {
     return { ok: false, error: e?.message || String(e) };
   }
@@ -517,6 +768,12 @@ ipcMain.handle('lumi-chat', async (_event, messages: any[], options = {}) => {
 ipcMain.on('lumi-think-stream-start', async (event, prompt: string, options = {}) => {
   const sender = event.sender;
   try {
+    const st = await updatePersonalityFromText(prompt || '', 'user');
+    if (st.refused && !isApology(prompt || '')) {
+      sender.send('lumi-think-chunk', "Let's keep it respectful. I'm happy to help when we're civil.");
+      sender.send('lumi-think-done');
+      return;
+    }
     await thinkStream(prompt, options, (chunk: string) => {
       sender.send('lumi-think-chunk', chunk);
     });
@@ -524,6 +781,21 @@ ipcMain.on('lumi-think-stream-start', async (event, prompt: string, options = {}
   } catch (e: any) {
     sender.send('lumi-think-error', e?.message || String(e));
   }
+});
+
+ipcMain.handle('lumi-log-feedback', async (_event, payload: any) => {
+  try {
+    const type = payload && payload.type ? String(payload.type) : '';
+    const text = payload && payload.text ? String(payload.text) : '';
+    if (/up|helpful|positive|good/i.test(type)) {
+      await updatePersonalityFromText('thanks', 'feedback');
+    } else if (/down|negative|bad|wrong/i.test(type)) {
+      await updatePersonalityFromText('bad', 'feedback');
+    } else {
+      await updatePersonalityFromText(text || '', 'feedback');
+    }
+    return { ok: true };
+  } catch (e: any) { return { ok: false, error: e?.message || String(e) }; }
 });
 
 // Memory IPC handlers (file-backed store)
@@ -538,9 +810,8 @@ ipcMain.handle('memory-add', async (_event, entry: any) => {
       if (s.suspicious) {
         // quarantine to staging for manual review
         try {
-          const repoTraining = path.join(process.cwd(), 'training');
-          await fs.mkdir(repoTraining, { recursive: true });
-          const stagingFile = path.join(repoTraining, 'staging.jsonl');
+          const stagingFile = getLumiPaths().stagingFile;
+          await fs.mkdir(path.dirname(stagingFile), { recursive: true });
           const qentry = Object.assign({}, entry, { ts: Date.now(), quarantine: true, threat: s });
           try {
             const { appendStagingUnique } = await import('./core/security/staging-utils.js');
@@ -550,22 +821,25 @@ ipcMain.handle('memory-add', async (_event, entry: any) => {
             }
           } catch (_e) {
             // fallback to simple append
-            await fs.appendFile(stagingFile, JSON.stringify(qentry) + '\n', 'utf8');
+            try {
+              const safe = Object.assign({}, qentry);
+              if (safe.file) safe.file = path.basename(String(safe.file));
+              if (safe.path) safe.path = path.basename(String(safe.path));
+              // redact windows absolute-ish fragments in q/a if present
+              try { if (typeof safe.q === 'string') safe.q = safe.q.replace(/\\\\[^\s\\/]+\\[^\s]+/g, '[REDACTED_PATH]').replace(/[A-Za-z]:\\[\\\S\s]*/g, '[REDACTED_PATH]').replace(/\/(Users|home)\/[^\s/]+\/[^\s]*/g, '/[REDACTED_PATH]'); } catch (_e2) {}
+              try { if (typeof safe.a === 'string') safe.a = safe.a.replace(/\\\\[^\s\\/]+\\[^\s]+/g, '[REDACTED_PATH]').replace(/[A-Za-z]:\\[\\\S\s]*/g, '[REDACTED_PATH]').replace(/\/(Users|home)\/[^\s/]+\/[^\s]*/g, '/[REDACTED_PATH]'); } catch (_e2) {}
+              await fs.appendFile(stagingFile, JSON.stringify(safe) + '\n', 'utf8');
+            } catch (_e3) { }
           }
-          // also write a sanitized copy into userData/self-learn/staging.jsonl for visibility
-          try {
-            const selfDir = path.join(app.getPath('userData'), 'self-learn');
-            await fs.mkdir(selfDir, { recursive: true });
-            const sanitizeStr = JSON.stringify(qentry).replace(new RegExp(process.cwd().replace(/\\/g,'\\\\'),'g'), '[PROJECT_ROOT]').replace(/[A-Za-z]:\\\\[^"\n\r]*/g, '[REDACTED_PATH]');
-            const selfStaging = path.join(selfDir, 'staging.jsonl');
-            await fs.appendFile(selfStaging, sanitizeStr + '\n', 'utf8');
-          } catch (_e) { }
+          // NOTE: do not write sanitized copies into Electron userData; keep all
+          // staging/suggestion state inside the repo `training/` folder so the
+          // project owner can review and approve items there.
         } catch (_e) { }
         return { ok: false, quarantined: true, reason: s.reasons.join(',') };
       }
     } catch (_e) { /* don't block on detector failures */ }
     const store: any = (global as any).lumiMemory;
-    const debugFile = path.join(app.getPath('userData'), 'lumi_memory_debug.log');
+    const debugFile = path.join(getLumiPaths().projectUserDataDir, 'lumi_memory_debug.log');
     // write a debug record so we can observe IPC calls even if store fails
     try {
       await fs.appendFile(debugFile, JSON.stringify({ ts: Date.now(), entry }) + '\n', 'utf8');
@@ -585,7 +859,7 @@ ipcMain.handle('memory-add', async (_event, entry: any) => {
 
     // Safe fallback: directly append to lumi_memory.jsonl in userData
     try {
-      const file = path.join(app.getPath('userData'), 'lumi_memory.jsonl');
+      const file = getLumiPaths().memoryFile;
       const e = Object.assign({}, entry, { t: entry.t || Date.now() });
       await fs.appendFile(file, JSON.stringify(e) + '\n', 'utf8');
       // Note: signal processing removed here to avoid duplicate processor invocations.
@@ -622,59 +896,83 @@ ipcMain.handle('memory-export', async () => {
 // Metrics endpoint: counts KB entries and learning events
 ipcMain.handle('lumi-metrics', async () => {
   try {
-    const repoTraining = path.join(process.cwd(), 'training');
-    const kbFile = path.join(repoTraining, 'lumi_knowledge.json');
-    const auditFile = path.join(repoTraining, 'training.jsonl');
-    const userKbFile = path.join(app.getPath('userData'), 'lumi_knowledge.json');
+    const lumiPaths = getLumiPaths();
+    const kbFile = lumiPaths.knowledgeBase;
+    const userKbFile = lumiPaths.userDataKnowledgeBase;
 
-    // Total KB entries (prefer repo training KB, fallback to userData file)
-    let totalKB = 0;
-    let kbEntries: any[] = [];
-    try {
-      const raw = await fs.readFile(kbFile, 'utf8');
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) { kbEntries = parsed; totalKB = parsed.length; }
-    } catch (_e) {
+    async function loadKbEntries(filePath: string): Promise<any[]> {
       try {
-        const raw2 = await fs.readFile(userKbFile, 'utf8');
-        const parsed2 = JSON.parse(raw2);
-        if (parsed2 && Array.isArray(parsed2.qa)) { kbEntries = parsed2.qa; totalKB = parsed2.qa.length; }
-        else if (Array.isArray(parsed2)) { kbEntries = parsed2; totalKB = parsed2.length; }
-      } catch (_2) { totalKB = 0; kbEntries = []; }
-    }
-
-    // Learning events today: count audit lines + deep-learned KB entries
-    let eventsToday = 0;
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    console.log(`[Metrics] Counting events from ${start.toISOString()}`);
-
-    // Count from training.jsonl audit file
-    try {
-      const lines = (await fs.readFile(auditFile, 'utf8')).split(/\r?\n/).filter(Boolean);
-      for (const ln of lines) {
-        try {
-          const obj = JSON.parse(ln);
-          const dstr = obj.date || obj.t || obj.createdAt || obj.timestamp;
-          let dt = null;
-          if (typeof dstr === 'number') dt = new Date(dstr);
-          else if (typeof dstr === 'string') dt = new Date(dstr);
-          if (dt && dt >= start) eventsToday++;
-        } catch (_e) { /* ignore parse errors */ }
+        const raw = await fs.readFile(filePath, 'utf8');
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed;
+        if (parsed && typeof parsed === 'object' && Array.isArray(parsed.qa)) return parsed.qa;
+        return [];
+      } catch (_e) {
+        return [];
       }
-      console.log(`[Metrics] Found ${eventsToday} events from training.jsonl`);
-    } catch (_e) {
-      console.log(`[Metrics] No training.jsonl file found`);
     }
 
-    // Count deep-learned KB entries from today
+    const repoEntries = await loadKbEntries(kbFile);
+    const userEntries = await loadKbEntries(userKbFile);
+
+    const normalize = (v: any) => {
+      try { return String(v || '').replace(/\s+/g, ' ').trim().toLowerCase(); } catch (_e) { return ''; }
+    };
+
+    function entryKey(entry: any): string {
+      try {
+        if (entry && entry.id) return `id:${String(entry.id)}`;
+        const q = normalize(entry.q || entry.question || entry.input || '');
+        const a = normalize(entry.a || entry.answer || entry.output || '');
+        const t = entry.learned || entry.date || entry.createdAt || entry.timestamp || entry.t || '';
+        if (q || a) return `qa:${q}||${a}||${t}`;
+        if (t) return `t:${String(t)}`;
+        return `raw:${JSON.stringify(entry).slice(0, 200)}`;
+      } catch (_e) { return `raw:${Math.random()}`; }
+    }
+
+    const entryMap = new Map<string, any>();
+    for (const e of [...repoEntries, ...userEntries]) {
+      const key = entryKey(e);
+      if (!entryMap.has(key)) entryMap.set(key, e);
+    }
+    const kbEntries = Array.from(entryMap.values());
+    const totalKB = kbEntries.length;
+
+    // Learning events today and in the last hour from KB timestamps
+    let eventsToday = 0;
+    let eventsLastHour = 0;
+    const nowTs = Date.now();
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    const lastHourStart = new Date(nowTs - 60 * 60 * 1000);
+    console.log(`[Metrics] Counting events from day start ${startOfDay.toISOString()} and last hour ${lastHourStart.toISOString()}`);
+
+    // Count from knowledge base timestamps
+    try {
+      for (const entry of kbEntries) {
+        const dstr = entry.learned || entry.date || entry.createdAt || entry.timestamp || entry.t;
+        let dt = null;
+        if (typeof dstr === 'number') dt = new Date(dstr);
+        else if (typeof dstr === 'string') dt = new Date(dstr);
+        if (dt) {
+          if (dt >= startOfDay) eventsToday++;
+          if (dt >= lastHourStart) eventsLastHour++;
+        }
+      }
+      console.log(`[Metrics] Found ${eventsToday} events today from KB files`);
+      console.log(`[Metrics] Found ${eventsLastHour} events in last hour from KB files`);
+    } catch (_e) {
+      console.log('[Metrics] Failed to count KB events');
+    }
+
+    // Count deep-learned KB entries from today (reported separately)
     let deepLearnedToday = 0;
     try {
       for (const entry of kbEntries) {
         if (entry.source === 'deep-learning' && entry.learned) {
           const dt = new Date(entry.learned);
-          if (dt >= start) {
-            eventsToday++;
+          if (dt >= startOfDay) {
             deepLearnedToday++;
           }
         }
@@ -686,13 +984,10 @@ ipcMain.handle('lumi-metrics', async () => {
 
     console.log(`[Metrics] Total events today: ${eventsToday}`);
 
-    const now = Date.now();
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-    const hoursElapsed = Math.max(1, (now - startOfDay.getTime()) / (1000 * 60 * 60));
-    const eventsPerHour = +(eventsToday / hoursElapsed).toFixed(2);
+    const hoursElapsedSinceOpen = Math.max(0, (nowTs - sessionStart.getTime()) / (1000 * 60 * 60));
+    const eventsPerHour = eventsLastHour;
 
-    console.log(`[Metrics] Hours elapsed: ${hoursElapsed.toFixed(2)}, Events/hr: ${eventsPerHour}`);
+    console.log(`[Metrics] Hours since open: ${hoursElapsedSinceOpen.toFixed(2)}, Events/hr: ${eventsPerHour}`);
 
     return {
       ok: true,
@@ -700,6 +995,7 @@ ipcMain.handle('lumi-metrics', async () => {
       eventsToday,
       eventsPerHour,
       deepLearnedToday,
+      hoursElapsedSinceOpen,
       timestamp: new Date().toISOString()
     };
   } catch (e: any) {
@@ -732,9 +1028,8 @@ ipcMain.handle('lumi-log-assistant', async (_event, question: string, answer: st
     const scan = Threat.scanQA(question, answer);
     if (scan.suspicious) {
       try {
-        const repoTrainingDir = path.join(process.cwd(), 'training');
-        await fs.mkdir(repoTrainingDir, { recursive: true });
-        const stagingFile = path.join(repoTrainingDir, 'staging.jsonl');
+        const stagingFile = getLumiPaths().stagingFile;
+        await fs.mkdir(path.dirname(stagingFile), { recursive: true });
         const staged = { id: `staged_${Date.now()}`, q: question, a: answer, confidence, source: 'assistant', date: new Date().toISOString(), threat: scan };
         const { appendStagingUnique } = await import('./core/security/staging-utils.js');
         const res = await appendStagingUnique(stagingFile, staged, { lookbackLines: 200, windowMs: 2 * 60 * 1000 });
@@ -744,15 +1039,9 @@ ipcMain.handle('lumi-log-assistant', async (_event, question: string, answer: st
         }
 
         // write a sanitized copy into userData/self-learn/staging.jsonl
-        try {
-          const selfDir = path.join(app.getPath('userData'), 'self-learn');
-          await fs.mkdir(selfDir, { recursive: true });
-          const sanitizeStr = JSON.stringify(staged)
-            .replace(new RegExp(process.cwd().replace(/\\/g,'\\\\'),'g'), '[PROJECT_ROOT]')
-            .replace(/[A-Za-z]:\\\\[^\"\n\r]*/g, '[REDACTED_PATH]');
-          const selfStaging = path.join(selfDir, 'staging.jsonl');
-          await fs.appendFile(selfStaging, sanitizeStr + '\n', 'utf8');
-        } catch (_e) { }
+        // NOTE: intentionally not writing sanitized copies into Electron userData
+        // to avoid scattering suggestion artifacts outside the repo. All staging
+        // state remains in `staging.jsonl` at project root.
 
         return { ok: false, quarantined: true, reason: scan.reasons.join(',') };
       } catch (e: any) {
@@ -773,7 +1062,7 @@ ipcMain.handle('lumi-log-assistant', async (_event, question: string, answer: st
 
     // append to audit
     try {
-      const repoTraining = path.join(process.cwd(), 'training');
+      const repoTraining = getLumiPaths().trainingDir;
       await fs.mkdir(repoTraining, { recursive: true });
       const auditFile = path.join(repoTraining, 'training.jsonl');
       await fs.appendFile(auditFile, JSON.stringify(entry) + '\n', 'utf8');
@@ -838,6 +1127,7 @@ ipcMain.handle('staging:approve', async (_event, id: string, editedAnswer?: stri
     }
     const approved = await StagingManager.approve(id, editor ? { editor } : undefined);
     if (!approved) return { ok: false, error: 'not-found' };
+    sendCuratorEvent('staging-updated', { action: 'approve', id });
     return { ok: true, item: approved };
   } catch (e: any) {
     console.error('[IPC] staging:approve error', e);
@@ -849,6 +1139,7 @@ ipcMain.handle('staging:reject', async (_event, id: string, reason?: string) => 
   try {
     const rejected = await StagingManager.reject(id, reason);
     if (!rejected) return { ok: false, error: 'not-found' };
+    sendCuratorEvent('staging-updated', { action: 'reject', id });
     return { ok: true, item: rejected };
   } catch (e: any) {
     console.error('[IPC] staging:reject error', e);
@@ -863,6 +1154,7 @@ ipcMain.handle('staging:delete', async (_event, id: string) => {
     if (idx === -1) return { ok: false, error: 'not-found' };
     all.splice(idx, 1);
     await StagingManager.saveStaging(all);
+    sendCuratorEvent('staging-updated', { action: 'delete', id });
     return { ok: true };
   } catch (e: any) {
     console.error('[IPC] staging:delete error', e);
@@ -873,7 +1165,7 @@ ipcMain.handle('staging:delete', async (_event, id: string) => {
 // Return canonical training KB (if exists)
 ipcMain.handle('staging:getKB', async () => {
   try {
-    const repoTraining = path.join(process.cwd(), 'training');
+    const repoTraining = getLumiPaths().trainingDir;
     const kbFile = path.join(repoTraining, 'lumi_knowledge.json');
     try {
       const raw = await fs.readFile(kbFile, 'utf8');

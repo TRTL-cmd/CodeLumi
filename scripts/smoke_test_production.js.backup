@@ -1,0 +1,228 @@
+#!/usr/bin/env node
+/**
+ * Smoke test for production utilities integration
+ * Tests: logging, health monitoring, backups, IPC handlers
+ */
+
+const { spawn } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+
+const TESTS = [];
+let passed = 0;
+let failed = 0;
+
+function test(name, fn) {
+  TESTS.push({ name, fn });
+}
+
+function log(emoji, message) {
+  console.log(`${emoji} ${message}`);
+}
+
+function success(message) {
+  passed++;
+  log('✅', message);
+}
+
+function fail(message) {
+  failed++;
+  log('❌', message);
+}
+
+function info(message) {
+  log('ℹ️ ', message);
+}
+
+// Helper to get userData path
+function getUserDataPath() {
+  const platform = process.platform;
+  const home = process.env.HOME || process.env.USERPROFILE;
+  
+  if (platform === 'win32') {
+    return path.join(process.env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'lumi-desktop');
+  } else if (platform === 'darwin') {
+    return path.join(home, 'Library', 'Application Support', 'lumi-desktop');
+  } else {
+    return path.join(home, '.config', 'lumi-desktop');
+  }
+}
+
+// Test 1: Check if source files exist
+test('Source files exist', async () => {
+  const files = [
+    'src/core/lumi-logger.ts',
+    'src/core/health-monitor.ts',
+    'src/core/backup-manager.ts'
+  ];
+  
+  for (const file of files) {
+    if (!fs.existsSync(file)) {
+      fail(`Missing: ${file}`);
+      return;
+    }
+  }
+  success('All production utility files exist');
+});
+
+// Test 2: Check main.ts imports
+test('main.ts imports production utilities', async () => {
+  const mainPath = 'src/main.ts';
+  if (!fs.existsSync(mainPath)) {
+    fail('src/main.ts not found');
+    return;
+  }
+  
+  const content = fs.readFileSync(mainPath, 'utf8');
+  const required = [
+    'lumi-logger',
+    'health-monitor',
+    'backup-manager'
+  ];
+  
+  const missing = required.filter(mod => !content.includes(mod));
+  if (missing.length > 0) {
+    fail(`main.ts missing imports: ${missing.join(', ')}`);
+    return;
+  }
+  
+  success('main.ts imports all production utilities');
+});
+
+// Test 3: Check IPC handlers registered
+test('IPC handlers registered in main.ts', async () => {
+  const mainPath = 'src/main.ts';
+  const content = fs.readFileSync(mainPath, 'utf8');
+  
+  const required = [
+    'lumi:health-check',
+    'lumi:backup-now',
+    'lumi:list-backups',
+    'lumi:get-logs'
+  ];
+  
+  const missing = required.filter(handler => !content.includes(handler));
+  if (missing.length > 0) {
+    fail(`Missing IPC handlers: ${missing.join(', ')}`);
+    return;
+  }
+  
+  success('All required IPC handlers registered');
+});
+
+// Test 4: Check preload.ts exposes APIs
+test('preload.ts exposes production APIs', async () => {
+  const preloadPath = 'src/preload.ts';
+  if (!fs.existsSync(preloadPath)) {
+    fail('src/preload.ts not found');
+    return;
+  }
+  
+  const content = fs.readFileSync(preloadPath, 'utf8');
+  
+  const required = [
+    'healthCheck',
+    'backupNow',
+    'listBackups',
+    'getLogs'
+  ];
+  
+  const missing = required.filter(api => !content.includes(api));
+  if (missing.length > 0) {
+    fail(`Missing preload APIs: ${missing.join(', ')}`);
+    return;
+  }
+  
+  success('preload.ts exposes all production APIs');
+});
+
+// Test 5: TypeScript compiles
+test('TypeScript compiles without errors', async () => {
+  return new Promise((resolve) => {
+    const tsc = spawn('npx', ['tsc', '--noEmit'], {
+      shell: true,
+      stdio: 'pipe'
+    });
+    
+    let stderr = '';
+    tsc.stderr.on('data', (data) => {
+      stderr += data.toString();
+    });
+    
+    tsc.on('close', (code) => {
+      if (code !== 0) {
+        fail('TypeScript compilation failed');
+        console.log(stderr);
+        resolve();
+      } else {
+        success('TypeScript compiles cleanly');
+        resolve();
+      }
+    });
+  });
+});
+
+// Test 6: Check if app can start (quick check)
+test('App structure is valid', async () => {
+  const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+  
+  if (!packageJson.main) {
+    fail('package.json missing "main" entry point');
+    return;
+  }
+  
+  if (!fs.existsSync('dist-electron') && !fs.existsSync('dist')) {
+    info('Note: dist-electron/ not found (run build first)');
+  }
+  
+  success('App structure is valid');
+});
+
+// Test 7: Check userData directories would be created
+test('userData paths are valid', async () => {
+  const userDataPath = getUserDataPath();
+  info(`userData path: ${userDataPath}`);
+  
+  const expectedDirs = [
+    path.join(userDataPath, 'logs'),
+    path.join(userDataPath, 'backups')
+  ];
+  
+  // Just check paths are valid (don't require dirs to exist yet)
+  success('userData paths configured correctly');
+});
+
+// Run all tests
+(async () => {
+  console.log('🧪 Running production utilities smoke tests...\n');
+  
+  for (const { name, fn } of TESTS) {
+    info(`Testing: ${name}`);
+    try {
+      await fn();
+    } catch (error) {
+      fail(`${name} - Error: ${error.message}`);
+    }
+    console.log('');
+  }
+  
+  // Summary
+  console.log('═'.repeat(60));
+  console.log(`📊 Results: ${passed} passed, ${failed} failed`);
+  console.log('═'.repeat(60));
+  
+  if (failed === 0) {
+    console.log('\n✅ All smoke tests passed!');
+    console.log('\n🚀 Next steps:');
+    console.log('   1. npm run build (if not already built)');
+    console.log('   2. npm run dev:electron');
+    console.log('   3. Open DevTools console');
+    console.log('   4. Run: await window.lumiOps.healthCheck()');
+    console.log('   5. Run: await window.lumiOps.backupNow()');
+    console.log('   6. Check logs in userData/logs/\n');
+    process.exit(0);
+  } else {
+    console.log('\n❌ Some tests failed. Fix issues before proceeding.\n');
+    process.exit(1);
+  }
+})();

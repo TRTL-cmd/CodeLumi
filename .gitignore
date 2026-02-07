@@ -19,12 +19,33 @@ Thumbs.db
 .venv/
 venv/
 
-# User data and backups (do NOT commit user data)
-userData/
+# ═══════════════════════════════════════════════════════════════
+# LUMI DATA ORGANIZATION (after path restructuring)
+# ═══════════════════════════════════════════════════════════════
+#
+# PROJECT DATA (tracked, shareable):
+#   archives/          - Session archives
+#   training/          - Knowledge base and training log
+#   staging.jsonl      - Suggestions
+#   userData/backups/  - Code backups
+#
+# PRIVATE DATA (NOT tracked, in AppData):
+#   %APPDATA%\lumi-desktop\lumi_memory.jsonl
+#   %APPDATA%\lumi-desktop\selflearn_config.json
+#   %APPDATA%\lumi-desktop\selflearn_progress.json
+# ═══════════════════════════════════════════════════════════════
+
+# User data directory (mostly tracked, but exclude sensitive files if present)
+userData/logs/
+# Exclude sensitive files if accidentally placed in project
+userData/lumi_memory.jsonl
+userData/selflearn_config.json
+userData/selflearn_progress.json
+
+# Training backups
 training/*.backup*
 training/*.bak
 training/*.backup.redact*
-userData/backups/
 
 # IDE
 .vscode/
@@ -45,3 +66,9 @@ dist/
 .env
 build/
 release/
+
+# User data (specific exclusions)
+userData/logs/
+userData/*.log
+
+# Privacy tool backups

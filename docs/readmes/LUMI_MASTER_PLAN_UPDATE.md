@@ -12,7 +12,7 @@
 
 Lumi now features a **fully autonomous learning system** that:
 - Scans the user's entire codebase automatically
-- Extracts knowledge using AI (Ollama + qwen2.5-coder)
+- Extracts knowledge using AI 
 - Generates code improvement suggestions
 - Learns continuously without manual intervention
 - Maintains complete privacy (all local processing)

@@ -1,0 +1,81 @@
+#!/usr/bin/env node
+const fs = require('fs');
+const path = require('path');
+
+function usage() {
+  console.log('Usage: node scripts/clean-kb.js [--dry-run] [--dir training|userData]');
+  process.exit(1);
+}
+
+const args = process.argv.slice(2);
+const dryRun = args.includes('--dry-run');
+const dirArgIndex = args.findIndex(a => a === '--dir');
+const targetDir = dirArgIndex >= 0 && args[dirArgIndex+1] ? args[dirArgIndex+1] : null;
+
+const projectRoot = process.cwd();
+const candidates = [];
+if (!targetDir || targetDir === 'training') candidates.push(path.join(projectRoot, 'training', 'lumi_knowledge.json'));
+if (!targetDir || targetDir === 'userData') candidates.push(path.join(projectRoot, 'userData', 'lumi_knowledge.json'));
+
+function normalizeEntry(it) {
+  // Accept various shapes, return {q,a}
+  if (!it) return null;
+  const q = (it.q || it.input || it.title || it.question || it.prompt || '').toString();
+  const a = (it.a || it.output || it.answer || it.text || it.response || '').toString();
+  if (!q && !a) return null;
+  return { q: q.trim(), a: a.trim() };
+}
+
+for (const file of candidates) {
+  try {
+    if (!fs.existsSync(file)) { console.log('Not found:', file); continue; }
+    const stat = fs.statSync(file);
+    const raw = fs.readFileSync(file, 'utf8');
+
+    console.log(`Processing: ${file}  size=${(stat.size/1024/1024).toFixed(2)}MB`);
+
+    // Try to parse but strip embeddings via reviver to avoid keeping them
+    let parsed;
+    try {
+      parsed = JSON.parse(raw, (k,v) => (k === 'embedding' ? undefined : v));
+    } catch (e) {
+      console.error('Failed to parse JSON for', file, e.message);
+      continue;
+    }
+
+    if (!Array.isArray(parsed)) {
+      console.log('Expected array in', file, '- skipping');
+      continue;
+    }
+
+    const seen = new Set();
+    const out = [];
+    for (const it of parsed) {
+      const n = normalizeEntry(it);
+      if (!n) continue;
+      const key = (n.q + '||' + n.a).slice(0, 1600);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(n);
+    }
+
+    const beforeCount = parsed.length;
+    const afterCount = out.length;
+    const outText = JSON.stringify(out, null, 2);
+    console.log(`  Entries: ${beforeCount} -> ${afterCount}`);
+    if (dryRun) {
+      console.log('  DRY RUN - not writing files');
+      continue;
+    }
+
+    // backup original
+    const backup = file + '.backup.' + new Date().toISOString().replace(/[:.]/g,'-');
+    fs.copyFileSync(file, backup);
+    fs.writeFileSync(file, outText, 'utf8');
+    console.log('  Wrote cleaned file and backup:', backup);
+  } catch (e) {
+    console.error('Error processing', file, e.message);
+  }
+}
+
+console.log('KB cleaning complete.');

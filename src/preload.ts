@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('lumi', {
   ,
   getMetrics: async () => ipcRenderer.invoke('lumi-metrics'),
   logAssistant: async (question: string, answer: string, confidence?: number) => ipcRenderer.invoke('lumi-log-assistant', question, answer, confidence),
+  logFeedback: async (type: string, text?: string) => ipcRenderer.invoke('lumi-log-feedback', { type, text }),
   // Learning event subscription
   onLearningEvent: (cb: (payload: any) => void) => ipcRenderer.on('lumi-learning-event', (_e, payload) => cb(payload)),
   // Self-learn controls
@@ -63,7 +64,11 @@ contextBridge.exposeInMainWorld('lumi', {
   // Staging / Curator API
   staging: {
     list: async () => {
-      try { return await ipcRenderer.invoke('staging:list'); } catch (_e) { return { ok: false, error: 'staging IPC unavailable' }; }
+      try {
+        const res = await ipcRenderer.invoke('staging:list');
+        if (res && res.ok) return res.items || [];
+        return [];
+      } catch (_e) { return []; }
     },
     stats: async () => {
       try { return await ipcRenderer.invoke('staging:stats'); } catch (_e) { return { ok: false, error: 'staging IPC unavailable' }; }
@@ -108,6 +113,54 @@ contextBridge.exposeInMainWorld('lumi', {
       } catch (err: any) {
         return { ok: false, error: err?.message || String(err), log };
       }
+    }
+  }
+  ,
+  // Archives API (session management)
+  archives: {
+    list: async () => {
+      try {
+        const res = await ipcRenderer.invoke('session:listArchives');
+        if (res && res.ok) return res.archives || [];
+        return [];
+      } catch (_e) { return []; }
+    },
+    read: async (path: string) => {
+      try { return await ipcRenderer.invoke('session:readArchive', path); } catch (_e) { return { ok: false, error: 'archives IPC unavailable' }; }
+    },
+    create: async (entries: any[], name?: string) => {
+      try { return await ipcRenderer.invoke('session:createArchive', entries, name); } catch (_e) { return { ok: false, error: 'archives IPC unavailable' }; }
+    },
+    promoteSelected: async (entries: any[]) => {
+      try { return await ipcRenderer.invoke('session:promoteSelected', entries); } catch (_e) { return { ok: false, error: 'archives IPC unavailable' }; }
+    },
+    moveEntryToRejected: async (path: string, index: number) => {
+      try { return await ipcRenderer.invoke('session:moveEntryToRejected', path, index); } catch (_e) { return { ok: false, error: 'archives IPC unavailable' }; }
+    },
+    deleteEntry: async (path: string, index: number) => {
+      try { return await ipcRenderer.invoke('session:deleteArchiveEntry', path, index); } catch (_e) { return { ok: false, error: 'archives IPC unavailable' }; }
+    }
+  }
+  ,
+  // Session alias for legacy UI (archives handlers)
+  session: {
+    listArchives: async () => {
+      try { return await ipcRenderer.invoke('session:listArchives'); } catch (_e) { return { ok: false, error: 'archives IPC unavailable' }; }
+    },
+    readArchive: async (path: string) => {
+      try { return await ipcRenderer.invoke('session:readArchive', path); } catch (_e) { return { ok: false, error: 'archives IPC unavailable' }; }
+    },
+    createArchive: async (entries: any[], name?: string) => {
+      try { return await ipcRenderer.invoke('session:createArchive', entries, name); } catch (_e) { return { ok: false, error: 'archives IPC unavailable' }; }
+    },
+    promoteSelected: async (entries: any[]) => {
+      try { return await ipcRenderer.invoke('session:promoteSelected', entries); } catch (_e) { return { ok: false, error: 'archives IPC unavailable' }; }
+    },
+    moveEntryToRejected: async (path: string, index: number) => {
+      try { return await ipcRenderer.invoke('session:moveEntryToRejected', path, index); } catch (_e) { return { ok: false, error: 'archives IPC unavailable' }; }
+    },
+    deleteArchiveEntry: async (path: string, index: number) => {
+      try { return await ipcRenderer.invoke('session:deleteArchiveEntry', path, index); } catch (_e) { return { ok: false, error: 'archives IPC unavailable' }; }
     }
   }
   ,

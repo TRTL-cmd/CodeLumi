@@ -1,0 +1,220 @@
+Daily Log — 2026-02-02
+
+Overview
+--------
+This document records a comprehensive, timestamped account of work conducted on 2026-02-02 related to the Lumi project. It focuses on diagnosing and fixing an embedding-feedback loop caused by the frontend writing embeddings to local and canonical knowledge files. It includes environment details, precise actions taken, commands executed, code edits, rationale, verification steps, and recommended follow-ups.
+
+Environment
+-----------
+- OS: Windows (user environment: C:\Users\Chris\OneDrive\Desktop\Lumi)
+- Project root: C:\Users\Chris\OneDrive\Desktop\Lumi
+- Notable folders touched: `index.html`, `dist/index.html`, `training/lumi_knowledge.json`, `userData/lumi_knowledge.json`
+- Tools used: VS Code, PowerShell, Node toolchain (tsc, npm), in-repo scripts
+- Active virtualenv: .venv (powershell activation observed)
+
+Timeline & Actions (detailed)
+-----------------------------
+08:42 — Initial observation & context
+- User reported an infinite loop where the agent repeatedly processed knowledge files because embeddings appeared present in frontend-saved KB files.
+- Hypothesis: Frontend code was creating or migrating KB entries and adding embeddings on startup, then saving them back to canonical files; the host/backend then reprocessed them, creating a feedback loop.
+
+08:47 — Repo scan to locate responsible code
+- Searched `index.html` for `initializeSeedKB`, `saveKB`, and migration snippets.
+- Found two regions of interest in `index.html`:
+  1. `initializeSeedKB()` implementation and a call on startup (seed insertion) which previously called `saveKB()` and thus wrote entries to storage.
+  2. A KB migration block that iterated `kb.qa` and invoked `computeEmbedding(...)` for entries missing `embedding`, then `saveKB(kb)` if changed.
+- `saveKB()` originally wrote the full `kb` object (including any `embedding` fields) to localStorage and invoked `remote.saveKnowledge(kb)` when `window.lumi` existed.
+
+09:05 — Plan
+- Prevent the frontend from writing embedding vectors to localStorage/canonical file by:
+  1. Modifying `saveKB()` to strip `embedding` fields before writing locally and before calling `remote.saveKnowledge()`.
+  2. Disabling automatic seed insertion `initializeSeedKB()` call to avoid creating new seed entries that would later be augmented with embeddings.
+  3. Commenting out the KB migration block that computed/attached embeddings on startup.
+- Verify by clearing KB files and localStorage, restarting, and confirming no `embedding` text in the knowledge files.
+
+09:17 — Performed safe edits to `index.html`
+- Edited `saveKB()` to:
+  - Build a `cleaned` object where each entry in `qa` is shallow-copied and had `delete clean.embedding` called.
+  - `localStorage.setItem(KB_KEY, JSON.stringify(cleaned));`
+  - `remote.saveKnowledge(cleaned)` used when `window.lumi.saveKnowledge` exists (wrapped in try/catch)
+- Commented out the startup call to `initializeSeedKB()` so the frontend does not insert seeds automatically.
+- Wrapped the KB migration block (the loop that added `e.embedding = computeEmbedding(...)`) in a block comment to permanently disable automatic embedding creation at startup.
+- Rationale: Keep the frontend able to read KB and merge canonical data, but avoid creating vector data that the host expects to create and manage.
+
+09:25 — Files edited
+- Edited: `index.html` (project root). Changes included:
+  - `saveKB()` rewrite to strip embeddings.
+  - `// initializeSeedKB(); // COMMENTED OUT to avoid frontend creating embeddings on startup`
+  - The embedding migration try/catch wrapped in a `/* ... */` comment block.
+- Note: The repo also contains `dist/index.html`. The root `index.html` was patched first; user was asked whether to patch `dist/index.html` similarly.
+
+09:27 — Verification steps prepared
+- Commands and actions recommended to the user to fully remove the loop:
+  - Stop Lumi (Ctrl+C if running).
+  - Remove training and userData KB files:
+
+    Remove-Item training\lumi_knowledge.json -Force
+    Remove-Item userData\lumi_knowledge.json -Force
+    Remove-Item userData\self-learn\lumi_knowledge.json -Force -ErrorAction SilentlyContinue
+
+  - Create fresh empty files:
+
+    "[]" | Out-File training\lumi_knowledge.json -Encoding utf8 -NoNewline
+    "[]" | Out-File userData\lumi_knowledge.json -Encoding utf8 -NoNewline
+
+  - Clear browser `localStorage` (DevTools Console): `localStorage.clear()`
+  - Rebuild & run:
+
+    npx tsc
+    npm run dev:electron
+
+  - Verify KB files contain no `embedding` keys:
+
+    Get-Content training\lumi_knowledge.json | Select-String "embedding" | Measure-Object
+
+    Expected: Count = 0
+
+09:33 — Created persistent log entry
+- Saved this detailed log to `docs/logs/daily/2026-02-02` (project file created).
+
+Observations & Root Cause (concise)
+-----------------------------------
+- The frontend was written to support both standalone browser mode and Electron integration. To support standalone semantic search, it would compute embeddings and persist them locally.
+- In Electron mode, the host/back-end also separately processes canonical KB files and expects to compute/manage embeddings. When the frontend computed embeddings and immediately saved them back to the canonical file, the host re-processed and re-saved or re-triggered workflows — creating an unbounded loop.
+- The immediate root cause: frontend code unconditionally computed and saved embeddings on startup (via migration block) and wrote them via `saveKB()` which propagated them to the host `saveKnowledge` function.
+
+Risk Assessment
+---------------
+- Rewriting `saveKB()` to strip embeddings reduces the risk of frontend-induced loops but ensures the frontend cannot persist embeddings even in a standalone (offline) mode. If standalone embedding persistence is desired later, a more nuanced approach is required (e.g., a runtime flag `allowFrontendEmbeddings` or separating canonical vs. local-only storage).
+- Commenting out migration reduces automatic convenience but avoids destructive feedback loops.
+- Changes are local to `index.html`. If other builds (e.g., `dist/index.html`) are served in production or packaged into releases, they must be patched similarly.
+
+Follow-ups & Recommendations
+----------------------------
+1. Patch `dist/index.html` the same way (if the application uses that file at runtime or in packaging). I can do this now if you want.
+2. Add a feature flag or setting to allow controlled local embedding computation (for offline-only mode). Suggested name: `SETTINGS.frontendEmbeddingsEnabled` (default: false in Electron mode).
+3. Add a host-side dedupe or idempotency guard: when host processes KB saves, it should ignore saves coming from the frontend that explicitly indicate "frontend-managed" embeddings, or perform a simple timestamp/update-id check to avoid re-triggering the same processing repeatedly.
+4. Add an automated integration test that simulates the frontend saving KB that contains embeddings and verifies the host does not re-trigger infinite processing.
+5. Consider adding a small README note in `docs/` explaining embedding ownership between frontend vs host.
+
+Appendix: Exact code edits (high level)
+--------------------------------------
+- `saveKB(kb)`
+  - Before: wrote `JSON.stringify(kb)` to `localStorage` and called `remote.saveKnowledge(kb)`
+  - After: constructs `cleaned` object with `embedding` fields removed and writes that instead, calls `remote.saveKnowledge(cleaned)`
+- Startup sequence edited to comment out `initializeSeedKB()` and the `computeEmbedding` migration loop.
+
+Files changed
+-------------
+- `index.html` — primary edits applied (saveKB rewrite, commented-out seed/migration blocks).
+- (optional) `dist/index.html` — recommended to patch if present in runtime packaging.
+
+Log saved
+---------
+- This log was saved to: docs/logs/daily/2026-02-02
+
+If you want, I can now:
+- Patch `dist/index.html` the same way.
+- Run the verification commands in a PowerShell session here and report back the outputs.
+- Create a small PR with the edits, or commit changes and add a Git note (if you want me to commit, tell me the branch/commit policy).
+
+End of log.
+
+
+# Daily Log — 2026-02-02
+
+Summary
+-------
+
+- **Date:** 2026-02-02
+- **Primary focus:** Stabilize self-learn agent and repository privacy tooling by removing sources of slowdowns and cross-platform errors. Create and test remediation scripts (KB cleaner, pre-commit fixer), patch the KB loader to avoid parsing massive embeddings, run dry-runs, and verify the Husky pre-commit hook is clean.
+
+Detailed actions (chronological)
+--------------------------------
+
+1. Prepared the KB cleaner
+   - Added `scripts/clean-kb.js`.
+   - Purpose: parse top-level KB files, strip inline embedding fields, normalize each entry to a compact Q/A form, deduplicate entries, produce a compact JSON array, and write a timestamped `.backup` before rewrite.
+   - Behavior: supports `--dry-run` and `--dir training|userData` flags.
+
+2. Prepared the pre-commit fixer
+   - Added `scripts/fix-precommit.js`.
+   - Purpose: remove Unix-style shebang lines (`#!/usr/bin/env node`) from JavaScript files under `scripts/` and from Husky hook scripts in `.husky/` (creates `.backup` copies before modification).
+
+3. Patched the KB loader to avoid parsing large embeddings
+   - Edited `src/core/memory/kb.ts` to prefer a compact companion file if present (e.g., `.compact.json`) and, for large KB files, to parse JSON with a reviver that strips `embedding` fields to avoid materializing large vectors in memory.
+   - Rationale: prevents the agent from needing to parse/hold large embedding objects, which previously caused extremely large `lumi_knowledge.json` files to slow or crash the agent.
+
+4. Ran KB cleaner in dry-run mode
+   - Command executed: `node scripts/clean-kb.js --dry-run`
+   - Observed output:
+     - Processed: `training/lumi_knowledge.json` — size ≈ 9.29 MB
+       - Entries: 5096 -> 5074 (dry-run: no files written)
+     - Processed: `userData/lumi_knowledge.json` — attempted parse failed due to a JSON escape issue (reported as "Bad escaped character in JSON at position 388").
+   - Actionable note: `userData/lumi_knowledge.json` contains malformed JSON and should be inspected or repaired before cleaning is applied there.
+
+5. Ran pre-commit fixer
+   - Command executed: `node scripts/fix-precommit.js`
+   - Observed output: shebang removed from multiple files in `scripts/` and from `.husky/pre-commit`; backups of modified files were created with `.backup` appended.
+
+6. Updated todo tracking and logs
+   - Updated internal todo list entries to reflect added scripts, dry-run completion, and remaining tasks (apply KB cleaner, re-run privacy audit, verify agent exclusion behavior).
+   - Created/updated the prior daily log `docs/logs/daily/2026-02-01.md` describing the previous day's work.
+
+Files created / modified (today)
+-------------------------------
+
+- Added: `scripts/clean-kb.js` — KB cleaner (dry-run supported).
+- Added: `scripts/fix-precommit.js` — shebang remover for scripts and husky hooks.
+- Modified: `src/core/memory/kb.ts` — prefer compact KBs and strip `embedding` during parse for large files.
+- Updated: `docs/logs/daily/2026-02-01.md` — previous day's detailed log.
+- Updated: task tracking (todo list) to add and mark the `2026-02-02` daily log completed.
+
+Commands run (repro)
+--------------------
+
+Run these commands locally (copy/paste):
+
+```powershell
+# Dry-run KB cleaning (safe)
+node scripts/clean-kb.js --dry-run
+
+# Fix pre-commit shebangs (creates .backup files)
+node scripts/fix-precommit.js
+
+# If you want to apply the KB cleaning (creates timestamped backups):
+node scripts/clean-kb.js
+
+# Re-run privacy audit (recommended after applying KB cleaning)
+node scripts/privacy_audit.js
+```
+
+Results and current state
+-------------------------
+
+- KB cleaner (dry-run): training KB parsed and normalized in-memory — would reduce entries slightly (5096 → 5074). No files were modified during dry-run.
+- `userData/lumi_knowledge.json` is malformed and prevented JSON parsing; it must be fixed manually or restored from a valid backup before running the cleaner on that file.
+- Pre-commit shebangs removed across many JS scripts and Husky hook(s); backups created so changes are reversible.
+- KB loader patched so the running agent will avoid loading large embedding objects for files larger than ~2 MB; agent now prefers compact companion KBs when present.
+
+Outstanding actionable items (left intentionally manual)
+-----------------------------------------------------
+
+- Apply KB cleaning for `training/lumi_knowledge.json` and (after repair) `userData/lumi_knowledge.json`:
+  - Command: `node scripts/clean-kb.js` (this will create `.backup.<timestamp>` files for each target). Manual review of `.backup` files is recommended before committing.
+- Re-run privacy audit to confirm reductions: `node scripts/privacy_audit.js`.
+- Start the agent or run the dev build to confirm the loader's exclusion/stripping behavior: `npm run dev:electron` (monitor console for messages indicating skipped/excluded KB files).
+
+Notes & safety
+--------------
+
+- I did not modify or run anything beyond the items above after your message instructing not to change anything else; this log is the only new document added.
+- All scripts that alter files (`clean-kb.js`, `fix-precommit.js`) create backups before writing so you can inspect and revert changes if necessary.
+- `userData/lumi_knowledge.json` must be inspected for JSON correctness before automated cleaning is applied to it — the dry-run flagged a parse error.
+
+Acknowledgement
+---------------
+
+Per your instruction, no further automatic modifications will be performed. If you want me to proceed with applying the KB cleaning, repairing the malformed `userData/lumi_knowledge.json`, re-running the audit, or starting the agent for verification, tell me which of those to run and I will execute only that action.
+
+— End of log for 2026-02-02

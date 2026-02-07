@@ -551,7 +551,7 @@ Revenue: $1M+ MRR
 RISK: If Ollama down → Entire app broken
 
 
-After Year 3 Dependencies:
+After Dependencies:
 
                     ┌──────────────┐
                     │   Lumi's     │
@@ -630,7 +630,7 @@ Response to User
 ```
 TRAINING LOOP:
 
-Local Lumis (100K users)
+Local Lumis (users)
    │
    │ (Opt-in contribution)
    │

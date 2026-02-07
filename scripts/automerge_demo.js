@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 
 console.log('\n');
 console.log('═'.repeat(80));

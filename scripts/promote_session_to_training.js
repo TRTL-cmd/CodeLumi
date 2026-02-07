@@ -1,0 +1,35 @@
+// Simple helper: given a session archive JSONL file, append its entries to training/training.jsonl
+const fs = require('fs');
+const path = require('path');
+if (process.argv.length < 3) {
+  console.error('Usage: node promote_session_to_training.js <archive.jsonl>');
+  process.exit(2);
+}
+const archive = process.argv[2];
+(async () => {
+  try {
+    const raw = await fs.promises.readFile(archive, 'utf8');
+    const lines = raw.split(/\r?\n/).filter(Boolean);
+    const repoTraining = path.join(process.cwd(), 'training');
+    await fs.promises.mkdir(repoTraining, { recursive: true });
+    const trainFile = path.join(repoTraining, 'training.jsonl');
+    // backup
+    try { await fs.promises.copyFile(trainFile, trainFile + `.backup.${Date.now()}.bak`); } catch (e) { }
+    const out = [];
+    for (const ln of lines) {
+      try {
+        const obj = JSON.parse(ln);
+        const candidate = {
+          input: (obj.role === 'user' ? obj.text : undefined) || obj.text,
+          output: (obj.role === 'assistant' ? obj.text : ''),
+          meta: { promotedFrom: archive, t: obj.t }
+        };
+        out.push(JSON.stringify(candidate));
+      } catch (e) { }
+    }
+    if (out.length) {
+      await fs.promises.appendFile(trainFile, out.join('\n') + '\n', 'utf8');
+    }
+    console.log('Appended', out.length, 'entries to', trainFile);
+  } catch (e) { console.error(e); process.exit(1); }
+})();

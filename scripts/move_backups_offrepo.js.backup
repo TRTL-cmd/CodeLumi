@@ -1,0 +1,49 @@
+#!/usr/bin/env node
+const fs = require('fs');
+const path = require('path');
+
+const repoRoot = path.resolve(__dirname, '..');
+const parentDir = path.dirname(repoRoot);
+const ts = new Date().toISOString().replace(/[:.]/g,'-');
+const archiveDir = path.join(parentDir, `lumi_backups_archive_${ts}`);
+
+function isBackup(fname){
+  return fname.endsWith('.redactbak') || /backup(\.|_)/.test(fname) || /\.bak$/.test(fname);
+}
+
+function walkAndCollect(dir, out){
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  for(const e of entries){
+    const full = path.join(dir, e.name);
+    if(e.isDirectory()){
+      if(e.name === 'node_modules' || e.name === '.git') continue;
+      walkAndCollect(full, out);
+    } else if(e.isFile()){
+      if(isBackup(e.name) || /\.redactbak$/.test(e.name)) out.push(full);
+    }
+  }
+}
+
+const files = [];
+walkAndCollect(repoRoot, files);
+if(files.length === 0){
+  console.log('No backup files found to move.');
+  process.exit(0);
+}
+
+fs.mkdirSync(archiveDir, { recursive: true });
+for(const f of files){
+  const rel = path.relative(repoRoot, f);
+  const dest = path.join(archiveDir, rel);
+  const destDir = path.dirname(dest);
+  fs.mkdirSync(destDir, { recursive: true });
+  try{
+    fs.renameSync(f, dest);
+    console.log('Moved:', rel, '->', path.relative(parentDir, dest));
+  }catch(e){
+    console.warn('Failed to move', f, e.message);
+  }
+}
+
+console.log('\nMoved', files.length, 'files to archive:', archiveDir);
+console.log('Archive is outside the repo root.');

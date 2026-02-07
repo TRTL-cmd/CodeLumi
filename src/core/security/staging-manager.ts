@@ -1,28 +1,50 @@
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import * as Threat from '../../security/threat_detection';
+import * as Sanitizer from '../../security/sanitizer';
+import { getLumiPaths } from '../paths';
 
 type StagingItem = any;
 
-const STAGING_PATH = path.resolve(__dirname, '../../../training/staging.jsonl');
-const KB_PATH = path.resolve(__dirname, '../../../training/lumi_knowledge.json');
+// Convert to functions instead of constants to use centralized paths
+function getStagingPath(): string {
+  return getLumiPaths().stagingFile; // PROJECT_ROOT/userData/staging.jsonl
+}
+
+function getKBPath(): string {
+  return getLumiPaths().knowledgeBase; // PROJECT_ROOT/training/lumi_knowledge.json
+}
 
 export class StagingManager {
   static async loadStaging(): Promise<StagingItem[]> {
     try {
-      const raw = await fs.readFile(STAGING_PATH, 'utf8');
+      const raw = await fs.readFile(getStagingPath(), 'utf8');
       const lines = raw.split(/\r?\n/).filter(Boolean);
-      return lines.map(l => JSON.parse(l));
+      const out: StagingItem[] = [];
+      for (const line of lines) {
+        try {
+          out.push(JSON.parse(line));
+        } catch (_e) {
+          // skip malformed lines to avoid breaking curator loading
+        }
+      }
+      return out;
     } catch (err: any) {
-      if (err.code === 'ENOENT') return [];
+      if (err.code === 'ENOENT') {
+        try {
+          await fs.mkdir(path.dirname(getStagingPath()), { recursive: true });
+          await fs.writeFile(getStagingPath(), '', 'utf8');
+        } catch (_e) { /* ignore */ }
+        return [];
+      }
       throw err;
     }
   }
 
   static async saveStaging(items: StagingItem[]): Promise<void> {
     const data = items.map(i => JSON.stringify(i)).join('\n') + (items.length ? '\n' : '');
-    await fs.mkdir(path.dirname(STAGING_PATH), { recursive: true });
-    await fs.writeFile(STAGING_PATH, data, 'utf8');
+    await fs.mkdir(path.dirname(getStagingPath()), { recursive: true });
+    await fs.writeFile(getStagingPath(), data, 'utf8');
   }
 
   static async listPending(): Promise<StagingItem[]> {
@@ -36,11 +58,14 @@ export class StagingManager {
         return String(x).replace(/\s+/g, ' ').trim().toLowerCase();
       } catch (_e) { return '' }
     }
+    let i = 0;
     for (const it of pending) {
       const qn = normalizeText(it.q);
       const an = normalizeText(it.a);
-      const sig = `${qn}||${an}`;
-      if (!sig) continue;
+      const msg = normalizeText(it.message || it.suggestion || it.title || it.note);
+      const id = (it.id !== undefined && it.id !== null) ? String(it.id) : '';
+      const sig = (qn || an) ? `${qn}||${an}` : (id || msg || `item_${i}`);
+      i += 1;
       const existing = bySig.get(sig);
       const tNew = (it.timestamp || it.ts || it.t || 0);
       const tOld = (existing && (existing.timestamp || existing.ts || existing.t)) || 0;
@@ -61,7 +86,7 @@ export class StagingManager {
     // append to canonical KB (lumi_knowledge.json) — keep it as an array file
     let kbRawParsed: any = null;
     try {
-      const kbRaw = await fs.readFile(KB_PATH, 'utf8');
+      const kbRaw = await fs.readFile(getKBPath(), 'utf8');
       kbRawParsed = JSON.parse(kbRaw || 'null');
     } catch (err: any) {
       if (err.code !== 'ENOENT') throw err;
@@ -73,33 +98,73 @@ export class StagingManager {
     delete toAppend.approvedAt;
     delete toAppend.approvedBy;
 
+    // If canonical-only staging entry, attempt to recover q/a from message
+    try {
+      const hasQA = !!(toAppend.q || toAppend.a || toAppend.question || toAppend.answer || toAppend.input || toAppend.output);
+      if (!hasQA && typeof toAppend.message === 'string' && toAppend.message.includes(' -> ')) {
+        const parts = String(toAppend.message).split(' -> ');
+        if (parts.length >= 2) {
+          toAppend.q = parts.shift() || '';
+          toAppend.a = parts.join(' -> ');
+        }
+      }
+    } catch (_e) { }
+
+    // redact PII and absolute paths before persisting to KB
+    try {
+      const scrub = (key: string) => {
+        if (typeof (toAppend as any)[key] === 'string') {
+          (toAppend as any)[key] = Sanitizer.redactPII(Sanitizer.sanitizeText((toAppend as any)[key]));
+        }
+      };
+      scrub('q');
+      scrub('a');
+      scrub('question');
+      scrub('answer');
+      scrub('input');
+      scrub('output');
+      scrub('message');
+      scrub('suggestion');
+      scrub('title');
+      scrub('note');
+      if (toAppend.path || toAppend.file) {
+        const p = String(toAppend.path || toAppend.file || '');
+        const root = getLumiPaths().projectRoot;
+        const sanitized = p.includes(root)
+          ? p.replace(root, '[PROJECT_ROOT]')
+          : path.basename(p);
+        (toAppend as any).path = sanitized;
+        delete (toAppend as any).file;
+      }
+    } catch (_e) { }
+
     // If the KB file is an array, just push.
     if (Array.isArray(kbRawParsed)) {
       kbRawParsed.push(toAppend);
-      await fs.mkdir(path.dirname(KB_PATH), { recursive: true });
-      await fs.writeFile(KB_PATH, JSON.stringify(kbRawParsed, null, 2), 'utf8');
+      await fs.mkdir(path.dirname(getKBPath()), { recursive: true });
+      await fs.writeFile(getKBPath(), JSON.stringify(kbRawParsed, null, 2), 'utf8');
     }
     else if (kbRawParsed && typeof kbRawParsed === 'object') {
       // Support legacy 'qa' root object containing an array of entries
       if (Array.isArray(kbRawParsed.qa)) {
         kbRawParsed.qa.push(toAppend);
-        await fs.mkdir(path.dirname(KB_PATH), { recursive: true });
-        await fs.writeFile(KB_PATH, JSON.stringify(kbRawParsed, null, 2), 'utf8');
+        await fs.mkdir(path.dirname(getKBPath()), { recursive: true });
+        await fs.writeFile(getKBPath(), JSON.stringify(kbRawParsed, null, 2), 'utf8');
       }
       else {
         // Unknown object shape: convert to an array preserving existing object as first element
         const newArr = [] as any[];
         if (Object.keys(kbRawParsed).length > 0) newArr.push(kbRawParsed);
         newArr.push(toAppend);
-        await fs.mkdir(path.dirname(KB_PATH), { recursive: true });
-        await fs.writeFile(KB_PATH, JSON.stringify(newArr, null, 2), 'utf8');
+        await fs.mkdir(path.dirname(getKBPath()), { recursive: true });
+        await fs.writeFile(getKBPath(), JSON.stringify(newArr, null, 2), 'utf8');
       }
     }
     else {
       // File did not exist or was empty — create an array file with the new item
       const arr = [toAppend];
-      await fs.mkdir(path.dirname(KB_PATH), { recursive: true });
-      await fs.writeFile(KB_PATH, JSON.stringify(arr, null, 2), 'utf8');
+      await fs.mkdir(path.dirname(getKBPath()), { recursive: true });
+      await fs.writeFile(getKBPath(), JSON.stringify(arr, null, 2), 'utf8');
     }
 
     // persist updated staging
@@ -141,7 +206,7 @@ export class StagingManager {
           try {
             let kbRaw2: any = null;
             try {
-              const kbRaw = await fs.readFile(KB_PATH, 'utf8');
+              const kbRaw = await fs.readFile(getKBPath(), 'utf8');
               kbRaw2 = JSON.parse(kbRaw || 'null');
             } catch (_e) { kbRaw2 = null; }
             const attach = { safety_review: { waived: true, waivedBy: item.approvedBy, waivedAt: Date.now(), score: scan.score, reasons: scan.reasons || [] } };
@@ -151,14 +216,14 @@ export class StagingManager {
                   kbRaw2[i] = Object.assign({}, kbRaw2[i], attach);
                 }
               }
-              await fs.writeFile(KB_PATH, JSON.stringify(kbRaw2, null, 2), 'utf8');
+              await fs.writeFile(getKBPath(), JSON.stringify(kbRaw2, null, 2), 'utf8');
             } else if (kbRaw2 && typeof kbRaw2 === 'object' && Array.isArray(kbRaw2.qa)) {
               for (let i = 0; i < kbRaw2.qa.length; i++) {
                 if (String(kbRaw2.qa[i].id) === String(toAppend.id)) {
                   kbRaw2.qa[i] = Object.assign({}, kbRaw2.qa[i], attach);
                 }
               }
-              await fs.writeFile(KB_PATH, JSON.stringify(kbRaw2, null, 2), 'utf8');
+              await fs.writeFile(getKBPath(), JSON.stringify(kbRaw2, null, 2), 'utf8');
             }
           } catch (_e) { /* best-effort annotation */ }
 
@@ -176,15 +241,15 @@ export class StagingManager {
               // remove appended item from KB by id
               let kbRaw2: any = null;
               try {
-                const kbRaw = await fs.readFile(KB_PATH, 'utf8');
+                const kbRaw = await fs.readFile(getKBPath(), 'utf8');
                 kbRaw2 = JSON.parse(kbRaw || 'null');
               } catch (_e) { kbRaw2 = null; }
               if (Array.isArray(kbRaw2)) {
                 const filtered = kbRaw2.filter((it: any) => String(it.id) !== String(toAppend.id));
-                await fs.writeFile(KB_PATH, JSON.stringify(filtered, null, 2), 'utf8');
+                await fs.writeFile(getKBPath(), JSON.stringify(filtered, null, 2), 'utf8');
               } else if (kbRaw2 && typeof kbRaw2 === 'object' && Array.isArray(kbRaw2.qa)) {
                 kbRaw2.qa = kbRaw2.qa.filter((it: any) => String(it.id) !== String(toAppend.id));
-                await fs.writeFile(KB_PATH, JSON.stringify(kbRaw2, null, 2), 'utf8');
+                await fs.writeFile(getKBPath(), JSON.stringify(kbRaw2, null, 2), 'utf8');
               }
               // log removal to userData/security/removed.jsonl
               const logDir = path.join(process.cwd(), 'userData', 'security');

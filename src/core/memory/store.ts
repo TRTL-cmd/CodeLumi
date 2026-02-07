@@ -1,5 +1,6 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { getLumiPaths, LumiPaths } from '../paths';
 
 export interface MemoryEntry {
   id?: string;
@@ -12,8 +13,16 @@ export interface MemoryEntry {
 export class MemoryStore {
   file: string;
 
-  constructor(baseDir: string) {
-    this.file = path.join(baseDir, 'lumi_memory.jsonl');
+  constructor(baseDir?: string | LumiPaths) {
+    // Support both old API (baseDir string) and new API (LumiPaths object)
+    if (typeof baseDir === 'string') {
+      // Legacy: keep old behavior for backward compatibility
+      this.file = path.join(baseDir, 'lumi_memory.jsonl');
+    } else {
+      // New: use centralized paths (memory goes to AppData)
+      const lumiPaths = baseDir || getLumiPaths();
+      this.file = lumiPaths.memoryFile;
+    }
   }
 
   async ensureFile() {

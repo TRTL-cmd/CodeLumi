@@ -17,12 +17,13 @@
     "start": "node scripts/ensure_dist.js && electron .",
     "test:nn": "node test/test_nn.js",
     "package": "electron-builder",
+    "prelaunch:checks": "npx tsc --noEmit && node scripts/smoke_test_production.js",
     "fine-tune-model": "node tools/fine_tune_model.mjs assets/models/Lumi.glb assets/models/Lumi_tuned.glb",
     "normalize-model": "node tools/normalize_model.mjs assets/models/Lumi_tuned.glb assets/models/Lumi.glb"
   },
   "dependencies": {
-    "lucide-react": "^0.268.0",
     "dexie": "^3.2.3",
+    "lucide-react": "^0.268.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "three": "^0.153.0"
@@ -33,12 +34,12 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.0.0",
     "concurrently": "^8.2.0",
+    "cross-env": "^7.0.3",
     "electron": "^39.2.7",
     "electron-builder": "^23.6.0",
+    "husky": "^8.0.3",
     "sharp": "^0.34.5",
-    "cross-env": "^7.0.3",
     "typescript": "^5.1.6",
-    "husky": "^8.0.0",
     "vite": "^5.0.0"
   },
   "optionalDependencies": {
@@ -46,7 +47,7 @@
     "sharp": "^0.32.6"
   },
   "build": {
-    "appId": "com.yourname.lumi",
+    "appId": "com.tortolstudios.lumi",
     "productName": "Lumi Desktop",
     "directories": {
       "output": "release",
@@ -70,4 +71,3 @@
     }
   }
 }
-

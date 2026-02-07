@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18.x]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Install dependencies
+        run: |
+          npm ci --prefer-offline || npm install
+      - name: Build TypeScript
+        run: npx tsc -p tsconfig.json
+      - name: Run unit tests
+        run: |
+          node test/test_tokenizer.js
+          node test/test_trim_session.js
+          node test/test_memory_check.js
