@@ -1,3 +1,0 @@
-{"id":"sug_1769469769999_1a2b","path":"[PROJECT_ROOT]\\[SERVER_REDACTED]\share","date":"2026-01-26T23:22:42.160Z","message":"Consider handling malformed NDJSON lines when streaming from Ollama; add robust fallback parsing and error logging.","severity":"info"}
-{"timestamp":"2026-01-29T06:24:08.481Z","suggestion":"smoke-test-suggestion","file":"<test>"}
-{"timestamp":"2026-02-01T03:54:09.022Z","suggestion":"smoke-test-suggestion","file":"<test>"}
