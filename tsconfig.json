@@ -10,7 +10,7 @@
     "rootDir": "src",
     "skipLibCheck": true,
     "ignoreDeprecations": "5.0",
-    "outDir": "dist"
+    "outDir": "dist-electron"
   },
   "include": ["src/**/*", "types/**/*"]
 }

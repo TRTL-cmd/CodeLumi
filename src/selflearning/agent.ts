@@ -59,7 +59,7 @@ export class SelfLearningAgent {
     if (this.progressTracking) {
       const pf = path.join(this.userDataPath, 'selflearn_progress.json');
       try {
-        fs.readFile(pf, 'utf8').then(raw => { try { this.progress = JSON.parse(raw || '{}'); } catch (_e) { this.progress = {}; } }).catch(() => { this.progress = {}; });
+        fs.readFile(pf, 'utf8').then(raw => { this.progress = this.parseProgress(raw); }).catch(() => { this.progress = {}; });
       } catch (_e) { this.progress = {}; }
     }
   }
@@ -99,6 +99,50 @@ export class SelfLearningAgent {
     this.capacity = Math.max(1, Math.floor(rpm));
     this.tokens = Math.min(this.tokens, this.capacity);
     return { ok: true, capacity: this.capacity };
+  }
+
+  private toProgressKey(pth: string): string {
+    const rel = path.relative(this.projectRoot, pth);
+    const isInside = rel && !rel.startsWith('..') && !path.isAbsolute(rel);
+    if (isInside) return `lumi/${rel.split(path.sep).join('/')}`;
+    return `external/${path.basename(pth)}`;
+  }
+
+  private toDisplayPath(pth: string): string {
+    const rel = path.relative(this.projectRoot, pth);
+    const isInside = rel && !rel.startsWith('..') && !path.isAbsolute(rel);
+    if (isInside) return `lumi/${rel.split(path.sep).join('/')}`;
+    return `external/${path.basename(pth)}`;
+  }
+
+  private fromProgressKey(key: string): string {
+    if (key.startsWith('lumi/')) {
+      const rel = key.slice('lumi/'.length).split('/').join(path.sep);
+      return path.join(this.projectRoot, rel);
+    }
+    return key;
+  }
+
+  private parseProgress(raw: string): Record<string, any> {
+    try {
+      const parsed = JSON.parse(raw || '{}');
+      if (!parsed || typeof parsed !== 'object') return {};
+      const mapped: Record<string, any> = {};
+      for (const [key, value] of Object.entries(parsed)) {
+        mapped[this.fromProgressKey(String(key))] = value;
+      }
+      return mapped;
+    } catch (_e) {
+      return {};
+    }
+  }
+
+  private async writeProgress(pf: string): Promise<void> {
+    const out: Record<string, any> = {};
+    for (const [key, value] of Object.entries(this.progress)) {
+      out[this.toProgressKey(String(key))] = value;
+    }
+    await fs.writeFile(pf, JSON.stringify(out, null, 2), 'utf8');
   }
 
   async undo(count = 1) {
@@ -203,7 +247,7 @@ export class SelfLearningAgent {
         .replace(/[A-Z]:\\[\\\S\s]*/g, '[REDACTED_PATH]')
         .replace(/\/(Users|home)\/[^\s/]+\/[^\s]*/g, '/[REDACTED_PATH]');
       const excerpt = redacted.slice(0, 2000);
-      const entry = { id: `selflearn_${Date.now()}_${Math.random().toString(16).slice(2,8)}`, path: pth.replace(this.projectRoot, '[PROJECT_ROOT]'), excerpt, mtime, date: new Date().toISOString() };
+      const entry = { id: `selflearn_${Date.now()}_${Math.random().toString(16).slice(2,8)}`, path: this.toDisplayPath(pth), excerpt, mtime, date: new Date().toISOString() };
       // append to audit and store
       const auditFile = path.join(this.userDataPath, 'selflearn_audit.jsonl');
       const storeFile = path.join(this.userDataPath, 'selflearn_store.jsonl');
@@ -214,7 +258,7 @@ export class SelfLearningAgent {
         try {
           this.progress[pth] = Object.assign(this.progress[pth] || {}, { lastRead: Date.now(), completed: true, analyzed: true });
           const pf = path.join(this.userDataPath, 'selflearn_progress.json');
-          await fs.writeFile(pf, JSON.stringify(this.progress, null, 2), 'utf8');
+          await this.writeProgress(pf);
         } catch (_e) { }
       }
       this.seen[pth] = mtime;
@@ -226,7 +270,7 @@ export class SelfLearningAgent {
           await fs.mkdir(path.dirname(sugFile), { recursive: true }).catch(() => {});
           const outs: any[] = [];
           for (const s of suggestions) {
-            const maskedPath = pth.replace(this.projectRoot, '[PROJECT_ROOT]');
+            const maskedPath = this.toDisplayPath(pth);
             const out: any = {
               id: `sug_${Date.now()}_${Math.random().toString(16).slice(2,6)}`,
               path: maskedPath,
@@ -242,7 +286,7 @@ export class SelfLearningAgent {
             try { await fs.appendFile(sugFile, JSON.stringify(out) + '\n', 'utf8'); } catch (_e) { }
           }
           if (typeof sendEvent === 'function') {
-            try { sendEvent({ type: 'suggestion', path: pth.replace(this.projectRoot, '[PROJECT_ROOT]'), suggestions: outs }); } catch (_e) { }
+            try { sendEvent({ type: 'suggestion', path: this.toDisplayPath(pth), suggestions: outs }); } catch (_e) { }
           }
         }
       } catch (e) { /* suggestion generation shouldn't block learning */ }

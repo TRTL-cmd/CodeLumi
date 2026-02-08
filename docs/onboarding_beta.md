@@ -13,8 +13,8 @@ Quick start
 3. Settings: enable `Self-learn` only if you want the app to collect proposed training candidates. Telemetry is off by default.
 
 Curator workflow
-- When `Self-learn` is enabled, the system collects candidates and writes them to `userData/self-learn/staging.jsonl` (quarantine).
-- Use the Curator UI (Menu → Curator) to review grouped candidates. Approve to apply changes to the knowledge base; reject to discard.
+- When `Self-learn` is enabled, the system collects candidates and writes them to `userData/self-learn/staging.jsonl` (quarantine, sanitized paths).
+- Use the Curator UI (Menu → Curator) to review candidates. Approve to apply changes to the knowledge base; reject to discard.
 
 Exporting & support
 - To export training artifacts for offline review:
@@ -26,7 +26,8 @@ Exporting & support
 - If you need to share an artifact with support, run the sanitizer script first and attach the sanitized export.
 
 Rollback
-- Redaction and apply operations create backups in `training/` and `userData/backups/`. If an apply introduced bad content, restore from the most recent backup and re-run the sanitizer.
+- Redaction and apply operations may create backups under `userData/backups/` on the local machine. If an apply introduced bad content, restore from the most recent backup and re-run the sanitizer.
+- Repo-side redaction backups should be kept off-repo for beta to avoid accidental disclosure.
 
 Privacy & tips
 - Avoid importing or pasting regulated PII into the app.

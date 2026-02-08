@@ -15,6 +15,7 @@ type DeepAgentOptions = {
   deepExtensions?: string[];
   excludeDirs?: string[];
   progressTracking?: boolean;
+  allowExternalPaths?: boolean;
 };
 
 function now() { return Date.now(); }
@@ -39,32 +40,43 @@ export class DeepLearningAgent {
   private deepExtensions: string[];
   private excludeDirs: string[];
   private progressTracking: boolean;
+  private allowExternalPaths: boolean;
 
   constructor(opts: DeepAgentOptions) {
     this.userDataPath = opts.userDataPath;
-    this.watchPaths = opts.watchPaths && opts.watchPaths.length ? opts.watchPaths : [process.cwd()];
+    const lumiPaths = getLumiPaths();
+    this.watchPaths = opts.watchPaths && opts.watchPaths.length ? opts.watchPaths : [lumiPaths.projectRoot];
     this.intervalMs = opts.intervalMs || (opts.deepMode ? 60_000 : 30_000);
     this.deepMode = !!opts.deepMode;
     this.readFullFile = opts.readFullFile !== undefined ? !!opts.readFullFile : !!this.deepMode;
     this.deepExtensions = opts.deepExtensions || ['.ts', '.tsx', '.js', '.jsx', '.py', '.md', '.json'];
     this.excludeDirs = opts.excludeDirs || ['node_modules', '.git', 'dist', 'build', 'release', 'vendor'];
     this.progressTracking = !!opts.progressTracking;
+    this.allowExternalPaths = !!opts.allowExternalPaths;
     const rpm = opts.ratePerMinute || (this.deepMode ? 6 : 60);
     this.capacity = Math.max(1, rpm);
     this.tokens = this.capacity;
     this.lastRefill = now();
-    this.projectRoot = path.resolve(process.cwd());
+    this.projectRoot = path.resolve(lumiPaths.projectRoot);
 
     // ensure a dedicated self-learn folder under userData
     try { const base = path.join(this.userDataPath, 'self-learn'); fs.mkdir(base, { recursive: true }).catch(() => {}); } catch (_e) { }
 
     if (this.progressTracking) {
       const pf = path.join(this.userDataPath, 'selflearn_progress.json');
-      fs.readFile(pf, 'utf8').then(raw => { try { this.progress = JSON.parse(raw || '{}'); } catch (_e) { this.progress = {}; } }).catch(() => { this.progress = {}; });
+      fs.readFile(pf, 'utf8').then(raw => { this.progress = this.parseProgress(raw); }).catch(() => { this.progress = {}; });
     }
   }
 
   status() { return { running: this.running, paused: this.paused, tokens: this.tokens, capacity: this.capacity, deepMode: this.deepMode } }
+
+  setWatchPaths(paths: string[]) {
+    if (Array.isArray(paths) && paths.length) {
+      this.watchPaths = paths;
+      return { ok: true, count: this.watchPaths.length };
+    }
+    return { ok: false, error: 'invalid-paths' };
+  }
 
   start(sendEvent?: (payload: any) => void) {
     if (this.running) return { ok: false, error: 'already-running' };
@@ -101,6 +113,50 @@ export class DeepLearningAgent {
     } catch (e: any) { return { ok: false, error: e?.message || String(e) }; }
   }
 
+  private toProgressKey(pth: string): string {
+    const rel = path.relative(this.projectRoot, pth);
+    const isInside = rel && !rel.startsWith('..') && !path.isAbsolute(rel);
+    if (isInside) return `lumi/${rel.split(path.sep).join('/')}`;
+    return `external/${path.basename(pth)}`;
+  }
+
+  private toDisplayPath(pth: string): string {
+    const rel = path.relative(this.projectRoot, pth);
+    const isInside = rel && !rel.startsWith('..') && !path.isAbsolute(rel);
+    if (isInside) return `lumi/${rel.split(path.sep).join('/')}`;
+    return `external/${path.basename(pth)}`;
+  }
+
+  private fromProgressKey(key: string): string {
+    if (key.startsWith('lumi/')) {
+      const rel = key.slice('lumi/'.length).split('/').join(path.sep);
+      return path.join(this.projectRoot, rel);
+    }
+    return key;
+  }
+
+  private parseProgress(raw: string): Record<string, any> {
+    try {
+      const parsed = JSON.parse(raw || '{}');
+      if (!parsed || typeof parsed !== 'object') return {};
+      const mapped: Record<string, any> = {};
+      for (const [key, value] of Object.entries(parsed)) {
+        mapped[this.fromProgressKey(String(key))] = value;
+      }
+      return mapped;
+    } catch (_e) {
+      return {};
+    }
+  }
+
+  private async writeProgress(pf: string): Promise<void> {
+    const out: Record<string, any> = {};
+    for (const [key, value] of Object.entries(this.progress)) {
+      out[this.toProgressKey(String(key))] = value;
+    }
+    await fs.writeFile(pf, JSON.stringify(out, null, 2), 'utf8');
+  }
+
   private refillTokens() {
     const nowTs = now();
     const elapsedSec = Math.max(0, (nowTs - this.lastRefill) / 1000);
@@ -120,15 +176,17 @@ export class DeepLearningAgent {
   private async scanPath(pth: string, sendEvent?: (payload: any) => void) {
     try {
       if (this.stopping) return;
-      // ensure inside project
-      try {
-        const rootReal = (await fs.realpath(this.projectRoot).catch(() => path.resolve(this.projectRoot))).toString();
-        const resolvedReal = (await fs.realpath(pth).catch(() => path.resolve(pth))).toString();
-        const root = path.resolve(rootReal);
-        const resolved = path.resolve(resolvedReal);
-        const rel = path.relative(root, resolved);
-        if (rel.split(path.sep)[0] === '..') return;
-      } catch (_e) { return; }
+      // ensure inside project unless external paths are explicitly allowed
+      if (!this.allowExternalPaths) {
+        try {
+          const rootReal = (await fs.realpath(this.projectRoot).catch(() => path.resolve(this.projectRoot))).toString();
+          const resolvedReal = (await fs.realpath(pth).catch(() => path.resolve(pth))).toString();
+          const root = path.resolve(rootReal);
+          const resolved = path.resolve(resolvedReal);
+          const rel = path.relative(root, resolved);
+          if (rel.split(path.sep)[0] === '..') return;
+        } catch (_e) { return; }
+      }
 
       const stat = await fs.stat(pth);
       if (stat.isDirectory()) {
@@ -154,14 +212,11 @@ export class DeepLearningAgent {
       if (!this.readFullFile && raw.length > 64 * 1024) raw = raw.slice(0, 64 * 1024);
 
       // sanitize
-      const redacted = raw.replace(/([a-zA-Z0-9._%+-]+)@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g, '[REDACTED_EMAIL]')
-        .replace(new RegExp(path.resolve(this.projectRoot).replace(/\\/g,'\\\\'), 'g'), '[PROJECT_ROOT]')
-        .replace(/\\\\[^\s\\/]+\\[^\s]+/g, '[REDACTED_PATH]')
-        .replace(/[A-Z]:\\[\\\S\s]*/g, '[REDACTED_PATH]')
-        .replace(/\/(Users|home)\/[^\s/]+\/[^\s]*/g, '/[REDACTED_PATH]');
+      const redactedBase = Sanitizer.redactPII(raw);
+      const redacted = redactedBase.replace(new RegExp(path.resolve(this.projectRoot).replace(/\\/g, '\\\\'), 'g'), '[PROJECT_ROOT]');
 
       const excerpt = redacted.slice(0, 8000);
-      const entry = { id: `deep_${Date.now()}_${Math.random().toString(16).slice(2,8)}`, path: pth.replace(this.projectRoot, '[PROJECT_ROOT]'), excerpt, mtime, date: new Date().toISOString() };
+      const entry = { id: `deep_${Date.now()}_${Math.random().toString(16).slice(2,8)}`, path: this.toDisplayPath(pth), excerpt, mtime, date: new Date().toISOString() };
 
       const base = path.join(this.userDataPath, 'self-learn');
       const auditFile = path.join(base, 'selflearn_audit.jsonl');
@@ -173,7 +228,7 @@ export class DeepLearningAgent {
       if (this.progressTracking) {
         try { this.progress[pth] = Object.assign(this.progress[pth] || {}, { lastRead: Date.now(), completed: true, analyzed: true });
           const pf = path.join(this.userDataPath, 'self-learn', 'selflearn_progress.json');
-          await fs.writeFile(pf, JSON.stringify(this.progress, null, 2), 'utf8'); } catch (_e) { }
+          await this.writeProgress(pf); } catch (_e) { }
       }
 
       this.seen[pth] = mtime;
@@ -188,8 +243,8 @@ export class DeepLearningAgent {
       try {
         if (this.stopping) return;
         this.activeOps++;
-        await this.generateKnowledge(raw, pth, ext);
-        try { if (!this.stopping) await this.generateSuggestions(raw, pth); } catch (_e) { }
+        await this.generateKnowledge(redacted, pth, ext);
+        try { if (!this.stopping) await this.generateSuggestions(redacted, pth); } catch (_e) { }
       } catch (_e) { /* don't block learning on KB failures */ }
       finally { this.activeOps = Math.max(0, this.activeOps - 1); }
 
@@ -197,7 +252,7 @@ export class DeepLearningAgent {
         const sugFile = getLumiPaths().stagingFile;
         await fs.mkdir(path.dirname(sugFile), { recursive: true }).catch(() => {});
         for (const s of suggestions) {
-          const out = Object.assign({ id: `sug_${Date.now()}_${Math.random().toString(16).slice(2,6)}`, path: pth, date: new Date().toISOString() }, s);
+          const out = Object.assign({ id: `sug_${Date.now()}_${Math.random().toString(16).slice(2,6)}`, path: this.toDisplayPath(pth), date: new Date().toISOString() }, s);
           try {
             const { appendStagingUnique } = await import('../core/security/staging-utils.js');
             await appendStagingUnique(sugFile, out, { lookbackLines: 200, windowMs: 2 * 60 * 1000 });
@@ -205,7 +260,7 @@ export class DeepLearningAgent {
             await fs.appendFile(sugFile, JSON.stringify({ id: out.id, path: out.path, date: out.date, line: out.line || null, message: out.message || out.suggestion || '[no-message]', severity: out.severity || out.priority || 'info' }) + '\n', 'utf8');
           }
         }
-        if (typeof sendEvent === 'function') sendEvent({ type: 'suggestion', path: pth, suggestions });
+        if (typeof sendEvent === 'function') sendEvent({ type: 'suggestion', path: this.toDisplayPath(pth), suggestions });
       }
 
       if (typeof sendEvent === 'function') sendEvent({ type: 'learned', entry });
@@ -241,7 +296,7 @@ export class DeepLearningAgent {
       const suggestionsFile = getLumiPaths().stagingFile;
       await fs.mkdir(path.dirname(suggestionsFile), { recursive: true }).catch(() => {});
       for (const s of suggestions) {
-        const entry = { id: `sug_${Date.now()}_${Math.random().toString(36).substring(7)}`, timestamp: new Date().toISOString(), file: pth, suggestion: s.suggestion || '', priority: s.priority || 'medium' };
+        const entry = { id: `sug_${Date.now()}_${Math.random().toString(36).substring(7)}`, timestamp: new Date().toISOString(), file: this.toDisplayPath(pth), suggestion: s.suggestion || '', priority: s.priority || 'medium' };
         try {
           const { appendStagingUnique } = await import('../core/security/staging-utils.js');
           await appendStagingUnique(suggestionsFile, entry, { lookbackLines: 200, windowMs: 2 * 60 * 1000 });
@@ -253,7 +308,7 @@ export class DeepLearningAgent {
       console.log(`[DeepAgent] 💡 Generated ${suggestions.length} suggestions for ${path.basename(pth)}`);
       try {
         const bw = BrowserWindow.getAllWindows()[0];
-        if (bw?.webContents) bw.webContents.send('lumi-learning-event', { type: 'suggestions', file: pth, suggestions });
+        if (bw?.webContents) bw.webContents.send('lumi-learning-event', { type: 'suggestions', file: this.toDisplayPath(pth), suggestions });
       } catch (_e) { }
     } catch (e: any) {
       console.error(`[DeepAgent] Suggestion generation failed:`, e?.message || e);
@@ -279,7 +334,7 @@ export class DeepLearningAgent {
     console.log(`[DeepAgent] generateKnowledge called for: ${pth}`);
     try {
       if (this.stopping) return;
-      const prompt = `Extract up to 3 concise Q/A pairs that capture the important responsibilities and behavior of the following file. Return ONLY a JSON array of objects with keys: q, a, confidence (0-1). File path: ${pth}\n\n----\n\n${raw.slice(0, 64_000)}`;
+      const prompt = `Extract up to 3 concise Q/A pairs that capture the important responsibilities and behavior of the following file. Return ONLY a JSON array of objects with keys: q, a, confidence (0-1). File: ${path.basename(pth)}\n\n----\n\n${raw.slice(0, 64_000)}`;
       const out = await think(prompt, { maxTokens: 800 });
       if (this.stopping) return;
       console.log(`[DeepAgent] Ollama returned length=${String(out || '').length}`);

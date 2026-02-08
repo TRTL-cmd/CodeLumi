@@ -143,6 +143,30 @@ window.addEventListener('error', (ev) => {
     rateRow.appendChild(setRateBtn);
     panel.appendChild(rateRow);
 
+    const watchRow = document.createElement('div');
+    watchRow.style.marginTop = '8px';
+    watchRow.style.display = 'flex';
+    watchRow.style.flexDirection = 'column';
+    watchRow.style.gap = '6px';
+    const watchLabel = document.createElement('div');
+    watchLabel.textContent = 'Watch folder';
+    watchLabel.style.fontSize = '11px';
+    watchLabel.style.fontWeight = '600';
+    const watchPath = document.createElement('div');
+    watchPath.textContent = 'Loading...';
+    watchPath.style.fontSize = '11px';
+    watchPath.style.color = '#333';
+    watchPath.style.border = '1px solid #eee';
+    watchPath.style.borderRadius = '6px';
+    watchPath.style.padding = '6px';
+    const pickBtn = document.createElement('button');
+    pickBtn.textContent = 'Choose Folder';
+    pickBtn.style.fontSize = '12px';
+    watchRow.appendChild(watchLabel);
+    watchRow.appendChild(watchPath);
+    watchRow.appendChild(pickBtn);
+    panel.appendChild(watchRow);
+
     const allowRow = document.createElement('div');
     allowRow.style.marginTop = '8px';
     allowRow.style.display = 'flex';
@@ -171,7 +195,8 @@ window.addEventListener('error', (ev) => {
         const cfg = r && r.ok ? (r.config || {}) : {};
         // update enabled toggle
         try { toggleInput.checked = !!cfg.enabled; } catch (e) { }
-        const arr = (cfg.watchPaths && Array.isArray(cfg.watchPaths)) ? cfg.watchPaths : [window.location.pathname || process.cwd()];
+        const arr = (cfg.watchPaths && Array.isArray(cfg.watchPaths)) ? cfg.watchPaths : ['Documents/Lumi'];
+        try { watchPath.textContent = arr && arr.length ? String(arr[0]) : 'Documents/Lumi'; } catch (_e) { }
         allowList.innerHTML = '';
         for (const p of arr) {
           const row = document.createElement('div');
@@ -199,6 +224,17 @@ window.addEventListener('error', (ev) => {
         refreshConfigUI();
         toast('Allowlist updated');
       } catch (e) { toast('Failed to update'); }
+    });
+
+    pickBtn.addEventListener('click', async () => {
+      try {
+        const resp = await ((window as any).lumi.selflearn && (window as any).lumi.selflearn.pickFolder ? (window as any).lumi.selflearn.pickFolder() : Promise.resolve({ ok: false }));
+        if (resp && resp.ok && resp.folder) {
+          await (window as any).lumi.setSelflearnConfig({ watchPaths: [resp.folder] });
+          refreshConfigUI();
+          toast('Watch folder updated');
+        }
+      } catch (_e) { toast('Folder select failed'); }
     });
 
     // Toggle handler: persist enabled flag and let main start/stop agent

@@ -23,6 +23,12 @@ contextBridge.exposeInMainWorld('lumi', {
   memoryExport: async () => ipcRenderer.invoke('memory-export')
   ,
   getMetrics: async () => ipcRenderer.invoke('lumi-metrics'),
+  healthCheck: async () => ipcRenderer.invoke('lumi:health-check'),
+  backupNow: async () => ipcRenderer.invoke('lumi:backup-now'),
+  listBackups: async () => ipcRenderer.invoke('lumi:list-backups'),
+  getLogs: async (opts?: any) => ipcRenderer.invoke('lumi:get-logs', opts || {}),
+  exportLogs: async () => ipcRenderer.invoke('support:export-logs'),
+  reportCrash: (payload: any) => { try { ipcRenderer.send('telemetry:crash', payload || {}); } catch (_e) { } },
   logAssistant: async (question: string, answer: string, confidence?: number) => ipcRenderer.invoke('lumi-log-assistant', question, answer, confidence),
   logFeedback: async (type: string, text?: string) => ipcRenderer.invoke('lumi-log-feedback', { type, text }),
   // Learning event subscription
@@ -38,6 +44,8 @@ contextBridge.exposeInMainWorld('lumi', {
     reset: async () => ipcRenderer.invoke('selflearn:reset'),
     status: async () => ipcRenderer.invoke('selflearn:status'),
     getProgress: async () => ipcRenderer.invoke('selflearn:getProgress')
+    ,
+    pickFolder: async () => ipcRenderer.invoke('selflearn:pickWatchPath')
     ,
     listDuplicates: async () => {
       try { return await ipcRenderer.invoke('selflearn:list-duplicates'); } catch (_e) { return { ok: false, error: 'unavailable' }; }

@@ -9,12 +9,14 @@ export function canonicalizeStagingEntry(entry: any): { id: string; path: string
         if (!v) return v;
         let s = String(v);
         s = s.replace(/\//g, '\\');
+        if (s.startsWith('lumi\\')) return s.replace(/\\/g, '/');
+        if (s.startsWith('lumi/')) return s;
         if (s.includes('[PROJECT_ROOT]')) return s;
         const proj = process.cwd().replace(/\//g, '\\');
         if (s.includes(proj)) {
           const rel = s.split(proj).slice(1).join(proj) || '';
           const r = rel.replace(/^\\+/, '');
-          return `[PROJECT_ROOT]\\${r}`;
+          return `lumi/${r.replace(/\\/g, '/')}`;
         }
         return path.basename(s);
       } catch (_e) { return '[REDACTED_PATH]'; }

@@ -24,30 +24,24 @@ Status snapshot
 	- Learning scaffolds (`processor.ts`, `extractor.ts`, `validator.ts`) implemented and wired into `Brain` call sites.
 	- Simple `updateKB()` auto-merge implemented with exact-match dedupe and `training/training.jsonl` audit logging.
 	- Renderer UX for acceptance (`Mark helpful`) implemented and hooked to `lumi-log-assistant`.
+	- Curator review UI is implemented and staging entries are written to `userData/self-learn/staging.jsonl` for approval/rejection.
 
 - Paused/Not implemented (critical before aggressive auto-merge):
-	- Embedding or fuzzy deduplication (paraphrase detection).
-	- Human review queue UI (staging/approve/deny flows).
+	- Embedding or fuzzy deduplication (paraphrase detection) beyond exact-match and short-window dedupe.
 	- Batch merge orchestration + retraining pipeline integration.
 
 Immediate next actions (high confidence)
 
 1) Deduplication & provenance metadata (2 days)
-	 - Implement `src/core/learning/dedupe.ts` which provides:
-		 - `findNearDuplicates(candidate, kbEntries) -> [{matchId,score}]`
-		 - `mergeCandidate(candidate, matches) -> mergedEntry` that populates `merged_from` with `{id,score}` and timestamps.
+	 - Implement semantic or embedding-based dedupe to reduce paraphrase duplicates beyond exact-match and short-window dedupe.
+	 - Add `merged_from` provenance metadata and timestamps for merges.
 	 - Add tests using representative paraphrase sets (use `training/fixtures/paraphrases.jsonl`).
 
-2) Human review queue (2 days)
-	 - Staging area: write new candidates to `training/staging.jsonl` instead of direct canonical merge.
-	 - Add renderer review UI (`renderer/review.html` or React component) to list staging entries with accept/reject/annotate actions.
-	 - IPC endpoints: `lumi-review-list`, `lumi-review-act` to fetch and apply curator decisions.
-
-3) Implicit feedback detectors (1 day)
+2) Implicit feedback detectors (1 day)
 	 - Implement heuristics: no-followup window (X minutes), long dwell on reply, quick-close event.
 	 - Log implicit signals to `training/training.jsonl` for review and potential auto-accept rules.
 
-4) Nightly merge + retrain pipeline (2 days)
+3) Nightly merge + retrain pipeline (2 days)
 	 - Create `scripts/nightly_merge.js` to run on a scheduler (or GitHub Actions locally) to:
 		 - Load staging entries, dedupe/merge with KB, write canonical updates and `merged_from` metadata.
 		 - Trigger `train_reranker.py` with new positive/negative samples and write a new `reranker.joblib` artifact.

@@ -79,7 +79,7 @@
   </div>
   
       <!-- Combined Settings Panel: General, Personality, History, Memory -->
-      <div id="settingsPanel" style="position:fixed;right:24px;bottom:24px;width:520px;background:#0b1220;color:#e6eef8;padding:12px;border-radius:12px;display:none;box-shadow:0 18px 60px rgba(2,6,23,.6);z-index:10002">
+      <div id="settingsPanel" style="position:fixed;right:24px;bottom:24px;width:520px;max-height:80vh;overflow:auto;background:#0b1220;color:#e6eef8;padding:12px;border-radius:12px;display:none;box-shadow:0 18px 60px rgba(2,6,23,.6);z-index:10002">
         <div style="display:flex;justify-content:space-between;align-items:center"><strong>Settings</strong><div><button id="closeSettings" class="tiny">Close</button></div></div>
 
         <div style="display:flex;gap:8px;margin-top:8px">
@@ -117,6 +117,16 @@
               <button id="lumiAnimSpin" class="tiny">Spin</button>
               <button id="lumiAnimBounce" class="tiny">Bounce</button>
               <button id="lumiToggleRotate" class="tiny">Stop Rotate</button>
+            </div>
+          </div>
+
+          <div style="margin-top:12px;border-top:1px solid #172029;padding-top:10px">
+            <strong>Self‑Learn Folders</strong>
+            <div style="color:var(--muted);font-size:.82rem;margin-top:4px">Pick folders Lumi can read for self‑learn. These are local-only and not uploaded.</div>
+            <div id="selflearnFolderList" style="margin-top:8px;display:flex;flex-direction:column;gap:6px"></div>
+            <div style="display:flex;gap:8px;margin-top:8px">
+              <button id="selflearnFolderAdd" class="tiny">Browse…</button>
+              <button id="selflearnFolderSave" class="tiny">Save Folders</button>
             </div>
           </div>
         </div>
@@ -235,7 +245,9 @@
             const React = window.React || (window.require && window.require('react'));
             const ReactDOM = window.ReactDOM || (window.require && window.require('react-dom'));
             if (React && ReactDOM) {
-              ReactDOM.render(React.createElement(window.SecurityCurator, {}), mountEl);
+              const root = ReactDOM.createRoot ? ReactDOM.createRoot(mountEl) : null;
+              if (root) { root.render(React.createElement(window.SecurityCurator, {})); }
+              else { ReactDOM.render(React.createElement(window.SecurityCurator, {}), mountEl); }
               console.info('[SecurityCurator] Mounted after dynamic load');
               return true;
             }
@@ -248,23 +260,9 @@
 
       if (tryMount()) return;
 
-      // If not present, inject script tag to load the compiled bundle.
-      const scriptSrc = './dist/components/security/SecurityCurator.js';
-      if (document.querySelector(`script[src="${scriptSrc}"]`)) {
-        // already loading; poll until available
-        const poll = setInterval(() => { if (tryMount()) clearInterval(poll); }, 250);
-        return;
-      }
-
-      const s = document.createElement('script');
-      s.src = scriptSrc;
-      s.async = true;
-      s.onload = () => {
-        // Give the bundle a moment to initialize then try mount
-        setTimeout(() => { if (!tryMount()) console.warn('[SecurityCurator] loaded but failed to mount'); }, 120);
-      };
-      s.onerror = () => console.error('[SecurityCurator] failed to load', scriptSrc);
-      document.head.appendChild(s);
+      // Poll for SecurityCurator (loaded via module script at end of page)
+      const poll = setInterval(() => { if (tryMount()) clearInterval(poll); }, 250);
+      setTimeout(() => clearInterval(poll), 10000); // stop polling after 10s
     })();
     /* Elements */
     const bubble = document.getElementById('bubble');
@@ -652,7 +650,13 @@
     function safeDisplayPath(p){
       try{
         let s = String(p || '');
-        if(s.includes('[PROJECT_ROOT]\\')) return s.replace('[PROJECT_ROOT]\\','');
+        if(!s) return 'unknown';
+        if (s.startsWith('lumi/')) return s;
+        if (s.startsWith('lumi\\')) return s.replace(/\\/g,'/');
+        if(s.includes('[PROJECT_ROOT]\\')) return s.replace('[PROJECT_ROOT]\\','lumi/').replace(/\\/g,'/');
+        if(s.includes('[PROJECT_ROOT]/')) return s.replace('[PROJECT_ROOT]/','lumi/');
+        s = s.replace(/^.*\\Lumi\\/i,'lumi/').replace(/\\/g,'/');
+        s = s.replace(/^.*\/Lumi\//i,'lumi/');
         s = s.replace(/^[A-Za-z]:\\/,'');
         s = s.replace(/^\\\\[^\\]+\\[^\\]+/,'[REDACTED_PATH]');
         s = s.replace(/^\/(Users|home)\/[\w\-. ]+/,'[REDACTED_PATH]');
@@ -682,7 +686,8 @@
           el.style.border = '1px solid #24303a'; el.style.padding = '12px'; el.style.marginBottom = '12px'; el.style.borderRadius = '4px'; el.style.background = '#0b1220';
 
           const filePath = sug.file || sug.path || sug.source || 'unknown';
-          const fileName = String(filePath).split(/[/\\]/).pop();
+          const displayPath = safeDisplayPath(filePath);
+          const fileName = String(displayPath).split('/').pop();
           const message = sug.suggestion || sug.message || sug.text || 'No details';
           const line = sug.line || sug.lineno || '?';
           const severity = sug.severity || sug.priority || 'info';
@@ -691,7 +696,7 @@
           header.innerHTML = `<div style="font-weight:600;font-family:monospace;font-size:0.9rem;color:#e6eef8">${escapeHtml(fileName)}</div>` +
                              `<div style="font-size:0.75rem;padding:2px 6px;border-radius:4px;background:${severity === 'high' ? '#fee' : severity === 'medium' ? '#ffa' : '#efe'};color:${severity === 'high' ? '#c00' : severity === 'medium' ? '#880' : '#080'}">${escapeHtml(severity)}</div>`;
 
-          const meta = document.createElement('div'); meta.style.fontSize = '0.75rem'; meta.style.color = '#9aa4b2'; meta.style.marginBottom = '6px'; meta.textContent = `📁 ${safeDisplayPath(filePath)} • Line ${line}`;
+          const meta = document.createElement('div'); meta.style.fontSize = '0.75rem'; meta.style.color = '#9aa4b2'; meta.style.marginBottom = '6px'; meta.textContent = `📁 ${displayPath} • Line ${line}`;
 
           const body = document.createElement('div'); body.style.fontSize = '0.85rem'; body.style.color = '#e6eef8'; body.style.marginBottom = '10px'; body.style.background = '#07101a'; body.style.padding = '8px'; body.style.borderRadius = '4px'; body.style.border = '1px solid #172029';
           body.textContent = message.slice(0, 200) + (message.length > 200 ? '...' : '');
@@ -719,7 +724,7 @@
           });
 
           safeAdd(detailsBtn, 'click', () => {
-            alert(`FILE: ${safeDisplayPath(filePath)}\nLINE: ${line}\nSEVERITY: ${severity}\n\nSUGGESTION:\n${message}\n\nID: ${sug.id || 'unknown'}`);
+            alert(`FILE: ${displayPath}\nLINE: ${line}\nSEVERITY: ${severity}\n\nSUGGESTION:\n${message}\n\nID: ${sug.id || 'unknown'}`);
           });
         }
 
@@ -767,7 +772,9 @@
               reactMount.style.display = 'block';
               try {
                 const Comp = (window.SecurityCurator.default || window.SecurityCurator);
-                ReactDOM.render(React.createElement(Comp), reactMount);
+                if (!reactMount._reactRoot) { reactMount._reactRoot = ReactDOM.createRoot ? ReactDOM.createRoot(reactMount) : null; }
+                if (reactMount._reactRoot) { reactMount._reactRoot.render(React.createElement(Comp)); }
+                else { ReactDOM.render(React.createElement(Comp), reactMount); }
                 return;
               } catch (e) { console.warn('React render failed, falling back to inline curator', e); }
             }
@@ -1192,6 +1199,47 @@ try{
         window.lumi.onLearningEvent((payload) => {
           try {
             if (!payload) return;
+            if (payload.type === 'ollama-offline') {
+              try {
+                let banner = document.getElementById('healthBanner');
+                if (!banner) {
+                  banner = document.createElement('div');
+                  banner.id = 'healthBanner';
+                  banner.style.position = 'fixed';
+                  banner.style.left = '50%';
+                  banner.style.top = '12px';
+                  banner.style.transform = 'translateX(-50%)';
+                  banner.style.background = 'linear-gradient(180deg,#3b0a0a,#2a0a0a)';
+                  banner.style.color = '#ffe1e1';
+                  banner.style.padding = '10px 14px';
+                  banner.style.borderRadius = '10px';
+                  banner.style.border = '1px solid rgba(255,120,120,0.25)';
+                  banner.style.boxShadow = '0 10px 30px rgba(0,0,0,0.45)';
+                  banner.style.zIndex = '1000500';
+                  banner.style.fontSize = '12px';
+                  banner.style.maxWidth = '720px';
+                  banner.style.display = 'flex';
+                  banner.style.alignItems = 'center';
+                  banner.style.gap = '12px';
+                  const txt = document.createElement('div');
+                  txt.id = 'healthBannerText';
+                  const btn = document.createElement('button');
+                  btn.textContent = 'Dismiss';
+                  btn.style.background = '#4a1414';
+                  btn.style.color = '#ffe1e1';
+                  btn.style.border = '1px solid rgba(255,120,120,0.35)';
+                  btn.style.padding = '6px 10px';
+                  btn.style.borderRadius = '8px';
+                  btn.style.cursor = 'pointer';
+                  btn.addEventListener('click', () => { try { banner.remove(); } catch (_e) {} });
+                  banner.appendChild(txt);
+                  banner.appendChild(btn);
+                  document.body.appendChild(banner);
+                }
+                const txt = document.getElementById('healthBannerText');
+                if (txt) txt.textContent = payload.message || 'Ollama is offline. Local-only features are available.';
+              } catch (_e) { }
+            }
             // refresh displayed KB and metrics when new KB items are added or learning events occur
             if (payload.type === 'kb-added' || payload.type === 'learned' || payload.type === 'suggestions' || payload.type === 'suggestion') {
               // attempt to reload canonical KB and update score
@@ -1306,19 +1354,14 @@ try{
             note.textContent = `💻 I've put the ${detectedLang || 'code'} code in my editor so I can work with it.`;
             try { bubble.appendChild(note); } catch (e) { }
 
-            // Try to mount React AutoCodeBox if available
+            // AutoCodeBox React component (loaded via module script below)
             try {
-              if (window.React && window.ReactDOM && !document.getElementById('reactCodeMount')) {
+              if (window.React && window.ReactDOM && window.__AutoCodeBox && !document.getElementById('reactCodeMount')) {
                 const mount = document.createElement('div'); mount.id = 'reactCodeMount'; document.body.appendChild(mount);
-                (async () => {
-                  try {
-                    const mod = await import('./dist/components/AutoCodeBox.js');
-                    const Comp = mod && mod.default ? mod.default : null;
-                    if (Comp && window.ReactDOM) {
-                      window.ReactDOM.render(window.React.createElement(Comp, { assistantMessage: detectedCode, language: detectedLang }), mount);
-                    }
-                  } catch (_) { /* ignore */ }
-                })();
+                const Comp = window.__AutoCodeBox;
+                const acbRoot = window.ReactDOM.createRoot ? window.ReactDOM.createRoot(mount) : null;
+                if (acbRoot) { acbRoot.render(window.React.createElement(Comp, { assistantMessage: detectedCode, language: detectedLang })); }
+                else { window.ReactDOM.render(window.React.createElement(Comp, { assistantMessage: detectedCode, language: detectedLang }), mount); }
               }
             } catch (_) { }
           }
@@ -1684,6 +1727,7 @@ try{
         if(tab === 'history') try{ renderHistory(); }catch(e){}
         if(tab === 'memory') try{ renderMemory(); }catch(e){};
         if(tab === 'personality') try{ renderPersonaHistory(); }catch(e){}
+        if(tab === 'general') try{ loadSelflearnConfig(); }catch(e){}
       }catch(e){ console.warn('showSettingsTab failed', e); }
     }
 
@@ -1763,6 +1807,78 @@ try{
         }
         memoryList.innerHTML = html;
       }catch(err){ console.warn('renderMemory failed', err); memoryList.innerHTML = '<div style="color:var(--muted)">Failed to load memory.</div>'; }
+    }
+
+    // Self-learn folder settings
+    const selflearnFolderList = document.getElementById('selflearnFolderList');
+    const selflearnFolderAdd = document.getElementById('selflearnFolderAdd');
+    const selflearnFolderSave = document.getElementById('selflearnFolderSave');
+    let selflearnWatchPaths = [];
+
+    function renderSelflearnFolders(){
+      if(!selflearnFolderList) return;
+      selflearnFolderList.innerHTML = '';
+      if(!selflearnWatchPaths || selflearnWatchPaths.length === 0){
+        selflearnFolderList.innerHTML = '<div style="color:var(--muted)">No folders selected.</div>';
+        return;
+      }
+      for(const p of selflearnWatchPaths){
+        const row = document.createElement('div');
+        row.style.display = 'flex';
+        row.style.alignItems = 'center';
+        row.style.justifyContent = 'space-between';
+        row.style.gap = '8px';
+        row.style.padding = '6px 8px';
+        row.style.border = '1px solid #172029';
+        row.style.borderRadius = '6px';
+        const label = document.createElement('div');
+        label.style.fontSize = '12px';
+        label.style.color = '#e6eef8';
+        label.textContent = safeDisplayPath(p);
+        const remove = document.createElement('button');
+        remove.textContent = 'Remove';
+        remove.className = 'tiny';
+        remove.addEventListener('click', ()=>{
+          selflearnWatchPaths = selflearnWatchPaths.filter(x => x !== p);
+          renderSelflearnFolders();
+        });
+        row.appendChild(label);
+        row.appendChild(remove);
+        selflearnFolderList.appendChild(row);
+      }
+    }
+
+    async function loadSelflearnConfig(){
+      try{
+        const res = await (window.lumi && window.lumi.getSelflearnConfig ? window.lumi.getSelflearnConfig() : { ok: true, config: {} });
+        const cfg = (res && res.ok) ? (res.config || {}) : {};
+        selflearnWatchPaths = Array.isArray(cfg.watchPaths) ? cfg.watchPaths.slice() : [];
+        renderSelflearnFolders();
+      }catch(_){ }
+    }
+
+    if(selflearnFolderAdd){
+      selflearnFolderAdd.addEventListener('click', async ()=>{
+        try{
+          const res = await (window.lumi && window.lumi.selflearn && window.lumi.selflearn.pickFolder ? window.lumi.selflearn.pickFolder() : { ok: false });
+          if(res && res.ok && res.path){
+            if(!selflearnWatchPaths.includes(res.path)) selflearnWatchPaths.push(res.path);
+            renderSelflearnFolders();
+          }
+        }catch(_){ }
+      });
+    }
+
+    if(selflearnFolderSave){
+      selflearnFolderSave.addEventListener('click', async ()=>{
+        try{
+          const res = await (window.lumi && window.lumi.getSelflearnConfig ? window.lumi.getSelflearnConfig() : { ok: true, config: {} });
+          const cfg = (res && res.ok) ? (res.config || {}) : {};
+          cfg.watchPaths = selflearnWatchPaths.slice();
+          await (window.lumi && window.lumi.setSelflearnConfig ? window.lumi.setSelflearnConfig(cfg) : Promise.resolve());
+          try{ say('Self‑learn folders saved', 1500, { feedback:false }); }catch(_){ }
+        }catch(e){ console.warn('save selflearn folders failed', e); }
+      });
     }
 
     if(openMemory) openMemory.addEventListener('click', ()=>{ try{ renderMemory(''); showSettingsTab('memory'); if(settingsPanel) settingsPanel.style.display='block'; }catch(e){ console.warn(e); } });
@@ -1896,11 +2012,13 @@ try{
       // respect saved spinOnOpen setting
       rotateEnabled = (function(){ try{ return !!loadSettings().spinOnOpen; }catch(e){ return false; } })();
       try{ if(codelumiToggleRotate) codelumiToggleRotate.textContent = rotateEnabled ? 'Stop Rotate' : 'Resume Rotate'; }catch(_){ }
+      try{ if(window.codelumiAnimations && typeof window.codelumiAnimations.setRotateEnabled === 'function'){ window.codelumiAnimations.setRotateEnabled(rotateEnabled); } }catch(_){ }
       try{
           codelumiToggleRotate && codelumiToggleRotate.addEventListener('click', ()=>{
             rotateEnabled = !rotateEnabled;
             codelumiToggleRotate.textContent = rotateEnabled ? 'Stop Rotate' : 'Resume Rotate';
             try{ const s = loadSettings(); s.spinOnOpen = !!rotateEnabled; saveSettings(s); const spinEl = document.getElementById('codelumiSpinOnOpen'); if(spinEl) spinEl.checked = !!s.spinOnOpen; }catch(_){ }
+            try{ if(window.codelumiAnimations && typeof window.codelumiAnimations.setRotateEnabled === 'function'){ window.codelumiAnimations.setRotateEnabled(rotateEnabled); } }catch(_){ }
             // If rotation was just disabled while in spin mode, stop spinning immediately using API getter
             if(!rotateEnabled){
               try{
@@ -2363,8 +2481,9 @@ try{
     openSettings.addEventListener('click', ()=>{
       try{
         const last = localStorage.getItem('lumi_last_settings_tab') || 'general';
-        showSettingsTab(last);
-      }catch(e){}
+        showSettingsTab(last || 'general');
+        if (last !== 'general') showSettingsTab('general');
+      }catch(e){ try{ showSettingsTab('general'); }catch(_){ } }
       settingsPanel.style.display='block';
     });
     closeSettings.addEventListener('click', ()=> settingsPanel.style.display='none');
@@ -2458,7 +2577,7 @@ try{
       const s = loadSettings();
       const fbEl = codelumiFeedbackToggle || document.getElementById('lumiFeedbackToggle') || document.getElementById('codelumiFeedbackToggle'); if(fbEl){ fbEl.checked = !!s.feedbackEnabled; fbEl.addEventListener('change', ()=>{ s.feedbackEnabled = !!fbEl.checked; saveSettings(s); say(s.feedbackEnabled? 'Feedback enabled':'Feedback disabled',1500,{feedback:false}); }); }
       const atEl = document.getElementById('codelumiAutoTrainToggle'); if(atEl){ atEl.checked = !!s.autoTrain; atEl.addEventListener('change', ()=>{ s.autoTrain = !!atEl.checked; saveSettings(s); say(s.autoTrain? 'Auto-train enabled':'Auto-train disabled',1500,{feedback:false}); }); }
-      const spinEl = document.getElementById('codelumiSpinOnOpen'); if(spinEl){ spinEl.checked = !!s.spinOnOpen; spinEl.addEventListener('change', ()=>{ s.spinOnOpen = !!spinEl.checked; saveSettings(s); say(s.spinOnOpen? 'Will spin on open':'Will not spin on open',1500,{feedback:false}); }); }
+      const spinEl = document.getElementById('codelumiSpinOnOpen'); if(spinEl){ spinEl.checked = !!s.spinOnOpen; spinEl.addEventListener('change', ()=>{ s.spinOnOpen = !!spinEl.checked; saveSettings(s); try{ if(window.codelumiAnimations && typeof window.codelumiAnimations.setRotateEnabled === 'function'){ window.codelumiAnimations.setRotateEnabled(!!s.spinOnOpen); if(!s.spinOnOpen && typeof window.codelumiAnimations.getMode === 'function'){ const m = window.codelumiAnimations.getMode(); if(m === 'spin'){ window.codelumiAnimations.setMode('idle'); } } } }catch(_){ } say(s.spinOnOpen? 'Will spin on open':'Will not spin on open',1500,{feedback:false}); }); }
       const apEl = document.getElementById('lumiAutoPersonaToggle'); if(apEl){ apEl.checked = !!s.autoPersona; apEl.addEventListener('change', ()=>{ s.autoPersona = !!apEl.checked; saveSettings(s); say(s.autoPersona? 'Auto‑personalize enabled':'Auto‑personalize disabled',1500,{feedback:false}); }); }
     }catch(e){ console.warn('settings init failed', e); }
 
@@ -2494,17 +2613,19 @@ try{
       (async ()=>{
         if(window.React && window.ReactDOM){
           try{
-            const path = './dist/components/CodeEditorEnhanced.js';
-            const mod = await import(path);
-            const Comp = mod && mod.default ? mod.default : null;
+            const Comp = window.__CodeEditorEnhanced || null;
             const mountEl = document.getElementById('reactEditorMount');
             if(Comp && mountEl){
               mountEl.style.display = 'block';
               // create a wrapper that proxies textarea <-> react component
               const onChange = (v)=>{ try{ if(codeInput) codeInput.value = v; }catch(_){ } };
               const props = { value: (codeInput && codeInput.value) || '', language: (codeInput && codeInput.dataset && codeInput.dataset.lang) || detectLanguage(codeInput && codeInput.value||''), onChange };
-              try{ window.ReactDOM.render(window.React.createElement(Comp, props), mountEl); window._reactEditorMounted = true; }
-              catch(e){ console.warn('React mount failed', e); }
+              try{
+                if (!mountEl._reactRoot) { mountEl._reactRoot = window.ReactDOM.createRoot ? window.ReactDOM.createRoot(mountEl) : null; }
+                if (mountEl._reactRoot) { mountEl._reactRoot.render(window.React.createElement(Comp, props)); }
+                else { window.ReactDOM.render(window.React.createElement(Comp, props), mountEl); }
+                window._reactEditorMounted = true;
+              } catch(e){ console.warn('React mount failed', e); }
 
               // provide a host->react event dispatch function; React component may listen for 'host-update'
               window._reactEditorUpdate = function(v){ try{ mountEl.dispatchEvent(new CustomEvent('host-update',{detail:v})); }catch(e){} };
@@ -2546,10 +2667,22 @@ try{
             try{
               // ev expected: { ok: true, merged: [...], confidence: 0.9, summary: '...' }
               if(!ev) return;
+              const safeEv = Object.assign({}, ev);
+              if (typeof safeEv.file === 'string') safeEv.file = safeDisplayPath(safeEv.file);
+              if (typeof safeEv.path === 'string') safeEv.path = safeDisplayPath(safeEv.path);
+              if (safeEv.entry && typeof safeEv.entry.path === 'string') safeEv.entry = Object.assign({}, safeEv.entry, { path: safeDisplayPath(safeEv.entry.path) });
+              if (Array.isArray(safeEv.items)) {
+                safeEv.items = safeEv.items.map(it => {
+                  if (!it || typeof it !== 'object') return it;
+                  if (typeof it.file === 'string') return Object.assign({}, it, { file: safeDisplayPath(it.file) });
+                  if (typeof it.path === 'string') return Object.assign({}, it, { path: safeDisplayPath(it.path) });
+                  return it;
+                });
+              }
               const conf = (ev.confidence || ev.conf || ev.c) ? Math.round((ev.confidence||ev.conf||ev.c)*100) + '%' : '';
               const summary = ev.summary || (Array.isArray(ev.merged) ? ev.merged.map(x=> (x.q||x.a||'')).slice(0,3).join(' • ') : '') || '';
               const msg = (summary ? summary + '\n' : '') + (conf ? 'Confidence: ' + conf : '');
-              console.log('[Renderer] learning event received:', ev);
+              console.log('[Renderer] learning event received:', safeEv);
               showLearningToast(msg);
             }catch(e){ console.warn('learning event handler failed', e); }
           });
@@ -2563,15 +2696,47 @@ try{
   (async ()=>{
     // Create error overlay and collection
     const errors = [];
+    function reportCrash(type, message, stack){
+      try{
+        if(window.lumi && typeof window.lumi.reportCrash === 'function'){
+          window.lumi.reportCrash({ type, message: String(message||''), stack: String(stack||'') });
+        }
+      }catch(_){ }
+    }
     function updateErrorBadge(){ const btn = document.getElementById('errBtn'); if(!btn) return; btn.textContent = `Errors (${errors.length})`; }
     function showErrorOverlay(){ let o = document.getElementById('errOverlay'); if(!o){ o = document.createElement('div'); o.id='errOverlay'; o.style.position='fixed'; o.style.right='12px'; o.style.bottom='60px'; o.style.width='420px'; o.style.maxHeight='60vh'; o.style.overflow='auto'; o.style.background='rgba(0,0,0,0.9)'; o.style.color='#fff'; o.style.padding='10px'; o.style.zIndex='1000000'; o.style.borderRadius='8px'; o.style.fontSize='12px'; document.body.appendChild(o); }
       o.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><strong>Console Errors</strong><button id="errClose" style="background:#222;color:#fff;border:none;padding:4px 8px;border-radius:6px">Close</button></div>' + errors.map(e=>`<div style="margin-bottom:8px;border-top:1px solid rgba(255,255,255,0.06);padding-top:6px">${e}</div>`).join('');
       document.getElementById('errClose')?.addEventListener('click', ()=>{ document.getElementById('errOverlay')?.remove(); });
     }
-    window.addEventListener('error', (ev)=>{ try{ errors.unshift(`${ev.message} — ${ev.filename || ev.filename===undefined?ev.filename:''} :${ev.lineno||''}`); if(errors.length>200) errors.length=200; updateErrorBadge(); }catch(e){} });
-    window.addEventListener('unhandledrejection', (ev)=>{ try{ const msg = (ev.reason && ev.reason.stack) ? ev.reason.stack : String(ev.reason); errors.unshift('UnhandledRejection: '+msg); if(errors.length>200) errors.length=200; updateErrorBadge(); }catch(e){} });
+    window.addEventListener('error', (ev)=>{ try{ const msg = `${ev.message} — ${ev.filename || ev.filename===undefined?ev.filename:''} :${ev.lineno||''}`; errors.unshift(msg); if(errors.length>200) errors.length=200; updateErrorBadge(); reportCrash('window.error', msg, ev.error && ev.error.stack); }catch(e){} });
+    window.addEventListener('unhandledrejection', (ev)=>{ try{ const msg = (ev.reason && ev.reason.stack) ? ev.reason.stack : String(ev.reason); errors.unshift('UnhandledRejection: '+msg); if(errors.length>200) errors.length=200; updateErrorBadge(); reportCrash('unhandledrejection', msg, ev.reason && ev.reason.stack); }catch(e){} });
     // add errors button
     const errBtn = document.createElement('button'); errBtn.id='errBtn'; errBtn.style.position='fixed'; errBtn.style.left='12px'; errBtn.style.bottom='12px'; errBtn.style.zIndex='1000000'; errBtn.style.background='#ff6b81'; errBtn.style.color='#fff'; errBtn.style.border='none'; errBtn.style.padding='6px 10px'; errBtn.style.borderRadius='8px'; errBtn.style.cursor='pointer'; errBtn.textContent='Errors (0)'; errBtn.addEventListener('click', ()=> showErrorOverlay()); document.body.appendChild(errBtn);
+
+    // One-click export logs for support
+    const exportBtn = document.createElement('button');
+    exportBtn.id = 'exportLogsBtn';
+    exportBtn.textContent = 'Export Logs';
+    exportBtn.style.position = 'fixed';
+    exportBtn.style.left = '110px';
+    exportBtn.style.bottom = '12px';
+    exportBtn.style.zIndex = '1000000';
+    exportBtn.style.background = '#2b3543';
+    exportBtn.style.color = '#e6eef8';
+    exportBtn.style.border = '1px solid #3a4658';
+    exportBtn.style.padding = '6px 10px';
+    exportBtn.style.borderRadius = '8px';
+    exportBtn.style.cursor = 'pointer';
+    exportBtn.addEventListener('click', async ()=>{
+      try{
+        exportBtn.disabled = true;
+        const res = await (window.lumi && window.lumi.exportLogs ? window.lumi.exportLogs() : Promise.resolve({ ok:false, error:'exportLogs unavailable' }));
+        if(res && res.ok){ try{ say('Logs exported to release_logs/', 2400, { feedback:false }); }catch(_){ alert('Logs exported to release_logs/'); } }
+        else { try{ say('Export failed: ' + (res && res.error ? res.error : 'unknown'), 2400, { feedback:false }); }catch(_){ alert('Export failed'); } }
+      }catch(e){ console.warn('Export logs failed', e); }
+      finally { exportBtn.disabled = false; }
+    });
+    document.body.appendChild(exportBtn);
 
     try{
       const THREE = await import('three');
@@ -2973,6 +3138,23 @@ try{
         getMode: ()=>{ try{ return currentMode; }catch(_){ return null; } }
       };
 
+      // allow external UI to toggle rotation state
+      try{
+        window.codelumiAnimations.setRotateEnabled = function(enabled){
+          rotateEnabled = !!enabled;
+          try{
+            const btn = document.getElementById('lumiToggleRotate') || document.getElementById('codelumiToggleRotate');
+            if(btn) btn.textContent = rotateEnabled ? 'Stop Rotate' : 'Resume Rotate';
+          }catch(_){ }
+        };
+      }catch(_){ }
+
+      // apply saved spin-on-open setting inside the 3D module
+      try{
+        const s = (window.loadSettings && typeof window.loadSettings === 'function') ? window.loadSettings() : null;
+        if(s && s.spinOnOpen){ window.codelumiAnimations.setRotateEnabled(true); }
+      }catch(_){ }
+
       // prefer an explicitly saved workspace model filename when present
       const initialModelFilename = (function(){ try{ return localStorage.getItem('lumi_model_filename') || 'Lumi.glb'; }catch(e){ return 'Lumi.glb'; } })();
       loader.load('assets/models/' + initialModelFilename, (gltf)=>{
@@ -3176,6 +3358,21 @@ try{
       makeDraggable(bubbleEl);
     });
   })();
+  </script>
+  <script type="module">
+    // Load React components as proper Vite modules (avoids inline import corruption)
+    (async () => {
+      try {
+        const mod = await import('./src/components/AutoCodeBox.tsx');
+        if (mod && mod.default) window.__AutoCodeBox = mod.default;
+      } catch (_) { /* optional */ }
+      try {
+        const mod = await import('./src/components/CodeEditorEnhanced.tsx');
+        if (mod && mod.default) window.__CodeEditorEnhanced = mod.default;
+      } catch (_) { /* optional */ }
+      // SecurityCurator: NOT loaded here — the inline DOM curator in index.html
+      // is the full-featured version (draggable, path redaction, archives, etc.)
+    })();
   </script>
 </body>
 </html>

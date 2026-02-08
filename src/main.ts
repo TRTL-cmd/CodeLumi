@@ -2,7 +2,7 @@
 // Contact: Tortolcoin@gmail.com
 // Proprietary — do not reproduce, distribute, or sell without permission.
 
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { think, thinkStream, thinkChat } from './core/brain/index';
@@ -19,8 +19,31 @@ import PersonalityManager from './core/personality/manager';
 import { initializeArchivesHandlers } from './main/archives-handlers';
 import { getLumiPaths } from './core/paths';
 import { canonicalizeStagingEntry } from './core/security/staging-utils';
+import { logger } from './core/lumi-logger';
+import { HealthMonitor } from './core/health-monitor';
+import { BackupManager } from './core/backup-manager';
+import { execFile } from 'child_process';
+
+// In packaged builds, process.cwd() defaults to system32 or wherever the exe launched from.
+// Set it to resourcesPath so ALL code that uses process.cwd() resolves to the correct location
+// (where extraResources like training/ and userData/ were unpacked by electron-builder).
+if (app.isPackaged && process.resourcesPath) {
+  try { process.chdir(process.resourcesPath); } catch (_) { /* best effort */ }
+}
 
 let sessionStart = new Date();
+let healthMonitor: HealthMonitor | null = null;
+let backupManager: BackupManager | null = null;
+
+function getHealthMonitor() {
+  if (!healthMonitor) healthMonitor = new HealthMonitor();
+  return healthMonitor;
+}
+
+function getBackupManager() {
+  if (!backupManager) backupManager = new BackupManager();
+  return backupManager;
+}
 
 // Helper to recover common mojibake (UTF-8 bytes decoded as latin1)
 function fixEncodingAndNormalize(s: string): string {
@@ -71,6 +94,23 @@ function sendCuratorEvent(type: string, data?: any) {
   } catch (_e) { }
 }
 
+async function writeCrashTelemetry(evt: { type: string; message?: string; stack?: string; source?: string; extra?: any }) {
+  try {
+    const lumiPaths = getLumiPaths();
+    const file = path.join(lumiPaths.projectUserDataDir, 'crash_telemetry.jsonl');
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    const clean = {
+      ts: new Date().toISOString(),
+      type: String(evt.type || 'unknown'),
+      message: Sanitizer.redactPII(Sanitizer.sanitizeText(String(evt.message || ''), 2000)),
+      stack: Sanitizer.redactPII(Sanitizer.sanitizeText(String(evt.stack || ''), 4000)),
+      source: String(evt.source || 'unknown'),
+      extra: evt.extra || undefined
+    };
+    await fs.appendFile(file, JSON.stringify(clean) + '\n', 'utf8');
+  } catch (_e) { }
+}
+
 type PersonalityState = {
   mood?: string;
   intensity?: number;
@@ -96,6 +136,13 @@ async function savePersonalityState(state: PersonalityState) {
     const out = Object.assign({}, state, { updatedAt: new Date().toISOString() });
     await fs.writeFile(p, JSON.stringify(out, null, 2), 'utf8');
   } catch (_e) { }
+}
+
+async function ensureDefaultSelflearnFolder(): Promise<string> {
+  const lumiPaths = getLumiPaths();
+  const folder = path.join(lumiPaths.projectUserDataDir, 'self-learn-input');
+  try { await fs.mkdir(folder, { recursive: true }); } catch (_e) { }
+  return folder;
 }
 
 function isApology(text: string) {
@@ -338,21 +385,30 @@ app.whenReady().then(async () => {
         let slCfg: any = null;
         try { const cfgFile = lumiPaths.configFile; const rawCfg = await fs.readFile(cfgFile, 'utf8'); slCfg = JSON.parse(rawCfg || '{}'); } catch (_e) { slCfg = null; }
 
+          const watchPaths = app.isPackaged
+            ? [lumiPaths.projectUserDataDir]
+            : [path.join(lumiPaths.projectRoot, 'src'), path.join(lumiPaths.projectRoot, 'training'), path.join(lumiPaths.projectRoot, 'assets')];
           const agent = new DeepLearningAgent({
             userDataPath: lumiPaths.projectUserDataDir,
-        // limit watch to project code and training assets to avoid scanning virtualenvs
-        watchPaths: [path.join(process.cwd(), 'src'), path.join(process.cwd(), 'training'), path.join(process.cwd(), 'assets')],
+        // limit watch to safe locations; packaged builds learn from userData artifacts
+        watchPaths,
         // deep-learn defaults: slow, thorough, persistent progress
         deepMode: true,
         readFullFile: true,
         deepExtensions: ['.ts', '.tsx', '.js', '.jsx', '.py', '.md', '.json'],
-        excludeDirs: ['node_modules', '.git', 'dist', 'build', 'release', 'vendor', '.venv', 'venv', '__pycache__', 'site-packages', 'Lib'],
+        excludeDirs: ['node_modules', '.git', 'dist', 'build', 'release', 'vendor', '.venv', 'venv', '__pycache__', 'site-packages', 'Lib', 'backups', 'logs', 'self-learn'],
         progressTracking: true,
+        allowExternalPaths: app.isPackaged,
         intervalMs: 60_000,
         ratePerMinute: 6
       });
       (global as any).lumiSelfAgent = agent;
       console.log('✅ DeepLearningAgent instantiated (deep mode)');
+      try {
+        if (slCfg && Array.isArray(slCfg.watchPaths) && slCfg.watchPaths.length && typeof agent.setWatchPaths === 'function') {
+          agent.setWatchPaths(slCfg.watchPaths.map((p: string) => path.resolve(p)));
+        }
+      } catch (_e) { }
       // auto-start if config explicitly enables it
       try {
         if (slCfg && slCfg.enabled) {
@@ -415,7 +471,13 @@ ipcMain.handle('selflearn:getConfig', async () => {
     const file = lumiPaths.configFile;
     try {
       const raw = await fs.readFile(file, 'utf8');
-      return { ok: true, config: JSON.parse(raw) };
+      const cfg = JSON.parse(raw || '{}') || {};
+      if (!Array.isArray(cfg.watchPaths) || cfg.watchPaths.length === 0) {
+        const def = await ensureDefaultSelflearnFolder();
+        cfg.watchPaths = [def];
+        await fs.writeFile(file, JSON.stringify(cfg, null, 2), 'utf8');
+      }
+      return { ok: true, config: cfg };
     } catch (e: any) { if (e.code === 'ENOENT') return { ok: true, config: null }; throw e; }
   } catch (e: any) { return { ok: false, error: e?.message || String(e) }; }
 });
@@ -424,11 +486,18 @@ ipcMain.handle('selflearn:setConfig', async (_event, cfg: any) => {
   try {
     const lumiPaths = getLumiPaths();
     const file = lumiPaths.configFile;
+    if (!cfg) cfg = {};
+    if (!Array.isArray(cfg.watchPaths) || cfg.watchPaths.length === 0) {
+      const def = await ensureDefaultSelflearnFolder();
+      cfg.watchPaths = [def];
+    }
     await fs.writeFile(file, JSON.stringify(cfg || {}, null, 2), 'utf8');
     // update agent watchPaths if present
     try {
       const agent: any = (global as any).lumiSelfAgent;
-      if (agent && cfg && Array.isArray(cfg.watchPaths)) agent.watchPaths = cfg.watchPaths.map((p: string) => path.resolve(p));
+      if (agent && cfg && Array.isArray(cfg.watchPaths) && typeof agent.setWatchPaths === 'function') {
+        agent.setWatchPaths(cfg.watchPaths.map((p: string) => path.resolve(p)));
+      }
       // start/stop based on enabled flag
       if (agent && typeof cfg.enabled === 'boolean') {
         const bw = BrowserWindow.getAllWindows()[0];
@@ -461,6 +530,14 @@ ipcMain.handle('selflearn:setConfig', async (_event, cfg: any) => {
   } catch (e: any) { return { ok: false, error: e?.message || String(e) }; }
 });
 
+ipcMain.handle('selflearn:pickWatchPath', async () => {
+  try {
+    const res = await dialog.showOpenDialog({ properties: ['openDirectory'] });
+    if (res.canceled || !res.filePaths || res.filePaths.length === 0) return { ok: false, canceled: true };
+    return { ok: true, path: res.filePaths[0] };
+  } catch (e: any) { return { ok: false, error: e?.message || String(e) }; }
+});
+
 ipcMain.handle('selflearn:runNow', async () => {
   try {
     const agent: any = (global as any).lumiSelfAgent;
@@ -470,6 +547,39 @@ ipcMain.handle('selflearn:runNow', async () => {
     await agent.tick(sendEvent);
     return { ok: true };
   } catch (e: any) { return { ok: false, error: e?.message || String(e) }; }
+});
+
+// Telemetry: renderer-reported crashes (local only)
+ipcMain.on('telemetry:crash', async (_event, payload: any) => {
+  try {
+    await writeCrashTelemetry({
+      type: String(payload?.type || 'renderer-error'),
+      message: String(payload?.message || ''),
+      stack: String(payload?.stack || ''),
+      source: 'renderer',
+      extra: payload?.extra || undefined
+    });
+  } catch (_e) { }
+});
+
+// Support: one-click log export (Windows uses PowerShell script)
+ipcMain.handle('support:export-logs', async () => {
+  try {
+    const lumiPaths = getLumiPaths();
+    const script = path.join(lumiPaths.projectRoot, 'scripts', 'collect_logs.ps1');
+    if (process.platform !== 'win32') {
+      return { ok: false, error: 'unsupported-platform' };
+    }
+    await fs.access(script);
+    return await new Promise((resolve) => {
+      execFile('powershell.exe', ['-ExecutionPolicy', 'Bypass', '-File', script], { cwd: lumiPaths.projectRoot }, (err, stdout, stderr) => {
+        if (err) return resolve({ ok: false, error: err.message || String(err), stderr: String(stderr || '') });
+        resolve({ ok: true, output: String(stdout || '') });
+      });
+    });
+  } catch (e: any) {
+    return { ok: false, error: e?.message || String(e) };
+  }
 });
 
 // Suggestions: list and acknowledge
@@ -1000,6 +1110,46 @@ ipcMain.handle('lumi-metrics', async () => {
     };
   } catch (e: any) {
     console.error(`[Metrics] Handler failed:`, e.message);
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+// Health/backup/logging IPC
+ipcMain.handle('lumi:health-check', async () => {
+  try {
+    const health = await getHealthMonitor().check();
+    return { ok: true, health };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+ipcMain.handle('lumi:backup-now', async () => {
+  try {
+    const results = await getBackupManager().backupAll();
+    return { ok: true, results };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+ipcMain.handle('lumi:list-backups', async () => {
+  try {
+    const backups = await getBackupManager().listBackups();
+    return { ok: true, backups };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+ipcMain.handle('lumi:get-logs', async (_event, opts: any = {}) => {
+  try {
+    const limit = Number(opts.limit || 200);
+    const errorLimit = Number(opts.errorLimit || 100);
+    const logs = await logger.getRecentLogs(limit);
+    const errors = await logger.getErrors(errorLimit);
+    return { ok: true, logs, errors };
+  } catch (e: any) {
     return { ok: false, error: e?.message || String(e) };
   }
 });

@@ -53,7 +53,9 @@ Disabling Self-Learn
 - Use the UI toggle, or set `userData/selflearn_config.json` `enabled: false` and restart.
 
 Privacy & Backup Files
-- Some `.backup.redact.*.bak` files may contain original absolute paths for forensic backup. Decide whether to finalize redaction before wide beta. See `docs/readmes/LUMI_MASTER_PLAN_UPDATE.md` for policy.
+- Runtime backups and logs are created under `userData/` on each tester machine. These are expected and should not be committed to the repo.
+- Repo-side redaction backups (forensics) should live off-repo before beta; if any remain, remove them and re-run the audit.
+- If the one-time scrubber flag `userData/.pii_scrubbed_v1` exists, it indicates legacy KB/staging files were already sanitized; delete the flag only if you intend to re-run the scrubber on next app start.
 
 Reporting Issues
 - When reporting a bug, attach:

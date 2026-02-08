@@ -2,6 +2,7 @@ import { ollama } from '../llm/ollama';
 import { searchKB, searchKBWithRerank } from '../memory/kb';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as Sanitizer from '../../security/sanitizer';
 // lightweight signal detector (JS module)
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const detector: any = require('../signal/detector');
@@ -40,7 +41,12 @@ async function logKBUsage(query: string, hits: Array<{ id?: string; title?: stri
   try{
     const file = path.join(process.cwd(),'userData','kb_usage.jsonl');
     await fs.promises.mkdir(path.dirname(file), { recursive: true });
-    const entry = { ts: Date.now(), query, source, hits: (hits||[]).map(h=>({ id: h.id, title: h.title })) };
+    const safeQuery = Sanitizer.redactPII(Sanitizer.sanitizeText(query || '', 2000));
+    const safeHits = (hits || []).map(h => ({
+      id: h.id,
+      title: Sanitizer.redactPII(Sanitizer.sanitizeText(String(h.title || ''), 200))
+    }));
+    const entry = { ts: Date.now(), query: safeQuery, source, hits: safeHits };
     await fs.promises.appendFile(file, JSON.stringify(entry) + '\n', 'utf8');
   }catch(_){ }
 }

@@ -5,6 +5,13 @@ import fs from 'fs';
 import path from 'path';
 import vm from 'vm';
 
+let isPackaged = false;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const electron = require('electron');
+  isPackaged = !!electron?.app?.isPackaged;
+} catch (_e) { /* ignore */ }
+
 const USER_DATA = path.resolve(process.cwd(), 'userData');
 if (!fs.existsSync(USER_DATA)) fs.mkdirSync(USER_DATA, { recursive: true });
 
@@ -22,7 +29,9 @@ export async function simulatePatch(patchText: string, patchId: string): Promise
       logs.push('Patch contains console.log — OK');
     }
     // sandboxed evaluation of small snippets (limit to expression)
-    if (patchText.trim().length < 1000 && patchText.includes('module.exports') === false) {
+    if (isPackaged) {
+      logs.push('VM execution disabled in packaged builds');
+    } else if (patchText.trim().length < 1000 && patchText.includes('module.exports') === false) {
       const script = new vm.Script(patchText.substring(0, 1000));
       const sandbox: any = {};
       vm.createContext(sandbox);

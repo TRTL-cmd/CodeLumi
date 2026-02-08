@@ -14,7 +14,7 @@
 
 ---
 
-## 🎯 **REMAINING TASKS**
+## 🎯 **BETA VERIFICATION TASKS**
 
 ### **1. Test Fixed Pre-Commit Hook (5 min)**
 
@@ -33,18 +33,16 @@ Remove-Item test_pii.txt
 
 ---
 
-### **2. Delete Backup Files (2 min)**n
+### **2. Delete Repo Backup Files (2 min)**
 
-Your backup files are just development artifacts. Beta users don't need them.
+If repo-local backups or logs exist, remove them before beta. Runtime backups are created under `userData/` on each tester machine and should not be checked in.
 
 ```powershell
-# Delete all backups
+# Delete repo-local backups/logs (if present in this repo)
 Remove-Item userData\backups -Recurse -Force
-
-# Delete logs (personal development logs)
 Remove-Item userData\logs -Recurse -Force
 
-# Verify they're gone
+# Verify they're gone (in repo)
 Test-Path userData\backups  # Should be False
 Test-Path userData\logs     # Should be False
 ```

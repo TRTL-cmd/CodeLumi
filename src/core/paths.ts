@@ -3,7 +3,7 @@
 // ════════════════════════════════════════════════════════════════
 // Centralized path management for Lumi
 //
-// PROJECT DATA (version controlled, in Git):
+// PROJECT DATA (local; repo in dev, AppData in packaged builds):
 //   - Knowledge base (training/lumi_knowledge.json)
 //   - Suggestions (userData/staging.jsonl)
 //   - Archives (userData/sessions/)
@@ -79,23 +79,27 @@ export class LumiPaths {
   public readonly progressFile: string;
 
   constructor() {
-    // Project root = current working directory (where code is)
-    this.projectRoot = process.cwd();
+    // In packaged builds, process.cwd() is unreliable (e.g. C:\WINDOWS\system32).
+    // Keep projectRoot for locating app resources, but store mutable data in AppData.
+    // In dev mode, use process.cwd() as before.
+    this.projectRoot = app.isPackaged ? process.resourcesPath : process.cwd();
 
     // User data = Electron AppData (for private stuff)
     this.appDataPath = app.getPath('userData');
 
+    const dataRoot = app.isPackaged ? this.appDataPath : this.projectRoot;
+
     // ═══════════════════════════════════════════════════════════
-    // PROJECT DATA PATHS (Git tracked)
+    // PROJECT DATA PATHS (local, writable)
     // ═══════════════════════════════════════════════════════════
 
     // Training directory
-    this.trainingDir = path.join(this.projectRoot, 'training');
+    this.trainingDir = path.join(dataRoot, 'training');
     this.knowledgeBase = path.join(this.trainingDir, 'lumi_knowledge.json');
     this.trainingLog = path.join(this.trainingDir, 'training.jsonl');
 
     // Project-level userData (backups, journals)
-    this.projectUserDataDir = path.join(this.projectRoot, 'userData');
+    this.projectUserDataDir = path.join(dataRoot, 'userData');
     this.backupsDir = path.join(this.projectUserDataDir, 'backups');
     this.journalFile = path.join(this.projectUserDataDir, 'action_journal.jsonl');
 
@@ -159,7 +163,7 @@ export class LumiPaths {
     console.log('📁 LUMI PATH CONFIGURATION');
     console.log('═'.repeat(80));
     console.log('');
-    console.log('PROJECT DATA (Git tracked, public):');
+    console.log('PROJECT DATA (local; repo in dev, AppData in packaged builds):');
     console.log(`  📚 Knowledge:      ${this.redact(this.knowledgeBase)}`);
     console.log(`  📝 Staging:        ${this.redact(this.stagingFile)}`);
     console.log(`  📦 Archives:       ${this.redact(this.archivesDir)}/`);

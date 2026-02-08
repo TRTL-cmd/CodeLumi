@@ -60,7 +60,7 @@ export class EnhancedDeepLearningAgent {
 
     if (this.progressTracking) {
       const pf = path.join(this.userDataPath, 'self-learn', 'selflearn_progress.json');
-      fs.readFile(pf, 'utf8').then(raw => { try { this.progress = JSON.parse(raw || '{}'); } catch (_e) { this.progress = {}; } }).catch(() => { this.progress = {}; });
+      fs.readFile(pf, 'utf8').then(raw => { this.progress = this.parseProgress(raw); }).catch(() => { this.progress = {}; });
     }
   }
 
@@ -89,6 +89,50 @@ export class EnhancedDeepLearningAgent {
   resume() { this.paused = false; return { ok: true }; }
 
   setRatePerMinute(rpm: number) { this.capacity = Math.max(1, Math.floor(rpm)); this.tokens = Math.min(this.tokens, this.capacity); return { ok: true, capacity: this.capacity }; }
+
+  private toProgressKey(pth: string): string {
+    const rel = path.relative(this.projectRoot, pth);
+    const isInside = rel && !rel.startsWith('..') && !path.isAbsolute(rel);
+    if (isInside) return `lumi/${rel.split(path.sep).join('/')}`;
+    return `external/${path.basename(pth)}`;
+  }
+
+  private toDisplayPath(pth: string): string {
+    const rel = path.relative(this.projectRoot, pth);
+    const isInside = rel && !rel.startsWith('..') && !path.isAbsolute(rel);
+    if (isInside) return `lumi/${rel.split(path.sep).join('/')}`;
+    return `external/${path.basename(pth)}`;
+  }
+
+  private fromProgressKey(key: string): string {
+    if (key.startsWith('lumi/')) {
+      const rel = key.slice('lumi/'.length).split('/').join(path.sep);
+      return path.join(this.projectRoot, rel);
+    }
+    return key;
+  }
+
+  private parseProgress(raw: string): Record<string, any> {
+    try {
+      const parsed = JSON.parse(raw || '{}');
+      if (!parsed || typeof parsed !== 'object') return {};
+      const mapped: Record<string, any> = {};
+      for (const [key, value] of Object.entries(parsed)) {
+        mapped[this.fromProgressKey(String(key))] = value;
+      }
+      return mapped;
+    } catch (_e) {
+      return {};
+    }
+  }
+
+  private async writeProgress(pf: string): Promise<void> {
+    const out: Record<string, any> = {};
+    for (const [key, value] of Object.entries(this.progress)) {
+      out[this.toProgressKey(String(key))] = value;
+    }
+    await fs.writeFile(pf, JSON.stringify(out, null, 2), 'utf8');
+  }
 
   private refillTokens() {
     const nowTs = now();
@@ -167,11 +211,8 @@ export class EnhancedDeepLearningAgent {
       if (!this.readFullFile && raw.length > 64 * 1024) raw = raw.slice(0, 64 * 1024);
 
       // sanitize
-      const redacted = raw.replace(/([a-zA-Z0-9._%+-]+)@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g, '[REDACTED_EMAIL]')
-        .replace(new RegExp(path.resolve(this.projectRoot).replace(/\\/g,'\\\\'), 'g'), '[PROJECT_ROOT]')
-        .replace(/\\\\[^\s\\/]+\\[^\s]+/g, '[REDACTED_PATH]')
-        .replace(/[A-Z]:\\[\\\S\s]*/g, '[REDACTED_PATH]')
-        .replace(/\/(Users|home)\/[^\s/]+\/[^\s]*/g, '/[REDACTED_PATH]');
+      const redactedBase = Sanitizer.redactPII(raw);
+      const redacted = redactedBase.replace(new RegExp(path.resolve(this.projectRoot).replace(/\\/g, '\\\\'), 'g'), '[PROJECT_ROOT]');
 
       // ensure progress object
       this.progress[key] = Object.assign(this.progress[key] || {}, { mtime, lastRead: Date.now(), completedPasses: prog.completedPasses || [] });
@@ -204,7 +245,7 @@ export class EnhancedDeepLearningAgent {
               for (const item of results) {
                 const q = Sanitizer.redactPII(Sanitizer.sanitizeText(String(item.q || '')));
                 const a = Sanitizer.redactPII(Sanitizer.sanitizeText(String(item.a || '')));
-                arr.push({ q, a, source: 'deep-learning-multipass', file: pth.replace(this.projectRoot, '[PROJECT_ROOT]'), confidence: item.confidence || 0.7, learned: new Date().toISOString() });
+                arr.push({ q, a, source: 'deep-learning-multipass', file: this.toDisplayPath(pth), confidence: item.confidence || 0.7, learned: new Date().toISOString() });
               }
               await fs.writeFile(kbFile, JSON.stringify(arr, null, 2), 'utf8');
             }
@@ -215,7 +256,7 @@ export class EnhancedDeepLearningAgent {
         this.progress[key].mtime = mtime;
         await this.persistProgress().catch(() => {});
         // emit event
-        try { if (typeof sendEvent === 'function') sendEvent({ type: 'learned', file: pth, pass: nextPass, added: (results && results.length) || 0 }); } catch (_e) { }
+        try { if (typeof sendEvent === 'function') sendEvent({ type: 'learned', file: this.toDisplayPath(pth), pass: nextPass, added: (results && results.length) || 0 }); } catch (_e) { }
       } finally { this.activeOps = Math.max(0, this.activeOps - 1); }
 
     } catch (_e) { /* ignore per-file errors */ }
@@ -297,7 +338,7 @@ export class EnhancedDeepLearningAgent {
     try {
       const pf = path.join(this.userDataPath, 'self-learn', 'selflearn_progress.json');
       await fs.mkdir(path.dirname(pf), { recursive: true }).catch(() => {});
-      await fs.writeFile(pf, JSON.stringify(this.progress, null, 2), 'utf8');
+      await this.writeProgress(pf);
     } catch (_e) { }
   }
 }

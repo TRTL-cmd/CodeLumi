@@ -2,7 +2,7 @@
   "name": "lumi-desktop",
   "version": "0.1.0",
   "private": true,
-  "main": "dist/main.js",
+  "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
     "prepare": "husky install",
@@ -12,7 +12,7 @@
     "copy-kb-to-training": "node tools/copy_kb_to_training.js",
     "infer-reranker": ".venv\\Scripts\\python.exe tools/infer_reranker.py",
     "retrain": "node tools/retrain.js",
-    "build": "vite build",
+    "build": "npx tsc && vite build",
     "postbuild": "node scripts/copy_models_postbuild.js",
     "start": "node scripts/ensure_dist.js && electron .",
     "test:nn": "node test/test_nn.js",

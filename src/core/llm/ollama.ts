@@ -8,6 +8,16 @@ export class OllamaClient {
   baseUrl: string;
   model: string;
 
+  private async fetchWithTimeout(url: string, options: Record<string, any> = {}, timeoutMs = 30000) {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...options, signal: controller.signal });
+    } finally {
+      clearTimeout(id);
+    }
+  }
+
   constructor(baseUrl = 'http://localhost:11434', model = 'gemma3:4b') {
     this.baseUrl = baseUrl.replace(/\/$/, '');
     this.model = model;
@@ -15,7 +25,7 @@ export class OllamaClient {
 
   async isAvailable(): Promise<boolean> {
     try {
-      const res = await fetch(`${this.baseUrl}/api/tags`);
+      const res = await this.fetchWithTimeout(`${this.baseUrl}/api/tags`, {}, 3000);
       return res.ok;
     } catch (e) {
       return false;
@@ -23,7 +33,7 @@ export class OllamaClient {
   }
 
   async listModels(): Promise<string[]> {
-    const res = await fetch(`${this.baseUrl}/api/tags`);
+    const res = await this.fetchWithTimeout(`${this.baseUrl}/api/tags`, {}, 5000);
     if (!res.ok) return [];
     const data = await res.json();
     return Array.isArray(data) ? data : [];
@@ -35,11 +45,11 @@ export class OllamaClient {
 
   async generate(prompt: string, options: Record<string, any> = {}): Promise<string> {
     const body = { model: this.model, prompt, stream: true, ...options };
-    const res = await fetch(`${this.baseUrl}/api/generate`, {
+    const res = await this.fetchWithTimeout(`${this.baseUrl}/api/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-    });
+    }, options.timeoutMs || 30000);
     if (!res.ok) throw new Error(`Ollama generate failed: ${res.status}`);
     
     // Aggregate streamed NDJSON response: accumulate all "response" fields into one string
@@ -88,11 +98,11 @@ export class OllamaClient {
 
   async chat(messages: Message[], options: Record<string, any> = {}): Promise<string> {
     const body = { model: this.model, messages, stream: options.stream === true, ...options };
-    const res = await fetch(`${this.baseUrl}/api/chat`, {
+    const res = await this.fetchWithTimeout(`${this.baseUrl}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-    });
+    }, options.timeoutMs || 30000);
     if (!res.ok) throw new Error(`Ollama chat failed: ${res.status}`);
 
     // If the response is a stream (NDJSON / chunked), aggregate like generate()
@@ -160,11 +170,11 @@ export class OllamaClient {
   // Chat stream generator: posts to /api/chat with stream=true and yields assistant content chunks
   async *chatStream(messages: Message[], options: Record<string, any> = {}) {
     const body = { model: this.model, messages, stream: true, ...options };
-    const res = await fetch(`${this.baseUrl}/api/chat`, {
+    const res = await this.fetchWithTimeout(`${this.baseUrl}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-    });
+    }, options.timeoutMs || 30000);
     if (!res.ok) throw new Error(`Ollama chat stream failed: ${res.status}`);
     const reader = res.body?.getReader();
     if (!reader) return;
@@ -208,11 +218,11 @@ export class OllamaClient {
   // Stream generator: yields text chunks from response body
   async *generateStream(prompt: string, options: Record<string, any> = {}) {
     const body = { model: this.model, prompt, stream: true, ...options };
-    const res = await fetch(`${this.baseUrl}/api/generate`, {
+    const res = await this.fetchWithTimeout(`${this.baseUrl}/api/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-    });
+    }, options.timeoutMs || 30000);
     if (!res.ok) throw new Error(`Ollama stream failed: ${res.status}`);
     const reader = res.body?.getReader();
     if (!reader) return;

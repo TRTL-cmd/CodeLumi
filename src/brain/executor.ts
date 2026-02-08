@@ -2,6 +2,14 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { exec as execCmd } from 'child_process';
 
+let isPackaged = false;
+try {
+  // Avoid hard dependency in non-Electron contexts.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const electron = require('electron');
+  isPackaged = !!electron?.app?.isPackaged;
+} catch (_e) { /* ignore */ }
+
 const USER_DATA = path.resolve(process.cwd(), 'userData');
 try { if (!fs.existsSync(USER_DATA)) fs.mkdirSync(USER_DATA, { recursive: true }); } catch (_){ }
 
@@ -105,6 +113,11 @@ export async function applyPlan(plan: any, opts: any = {}): Promise<any> {
       await appendJournal(rec);
       results.push(rec);
     } else if (step.action === 'runCommand') {
+      if (isPackaged && !opts.allowExecInProd) {
+        const rec = { ts: Date.now(), planId, stepId: step.id, action: step.action, allowed: false, reason: 'exec_disabled_prod' };
+        await appendJournal(rec);
+        return { ok: false, error: 'exec_disabled_prod', detail: rec };
+      }
       if (!opts.allowExec) {
         const rec = { ts: Date.now(), planId, stepId: step.id, action: step.action, allowed: false, reason: 'exec_disabled' };
         await appendJournal(rec);
