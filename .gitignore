@@ -78,3 +78,9 @@ release/
 
 # Privacy tool backups
 *.backup
+
+# Privacy audit artifacts
+docs/privacy_audit_*.md
+docs/privacy_audit_*.md.backup
+docs/privacy_audit_results.json
+docs/privacy_audit_results.json.backup

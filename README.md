@@ -402,11 +402,14 @@ Long term (next 2 years):
 
 ## Documentation
 
-- docs/readmes/README_DEV.md
 - TROUBLESHOOTING.md
 - CHANGELOG.md
 - CONTRIBUTING.md
 - LICENSE
+- benchmarks/README.md
+- scripts/README.md
+- src/core/memory/README.md
+- docs/Roadmap/LUMI_ROADMAP.md
 
 ## License
 
