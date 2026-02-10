@@ -58,6 +58,8 @@ training/*.backup.redact*
 coverage/
 test-results/
 tests/unit/knowledge-processor.test.ts
+tests/
+test/
 
 # Keep .husky/ committed so hooks are part of the repo when initialized
 .venv/

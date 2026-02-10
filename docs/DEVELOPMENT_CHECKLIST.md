@@ -208,9 +208,9 @@
 
 #### Beta Testing Setup
 
-- [ ] 152. Create `BETA_TESTERS.md` with guidelines
-- [ ] 153. Document system requirements (Node.js, Ollama, OS)
-- [ ] 154. Document installation steps
+- [x] 152. Create `BETA_TESTERS.md` with guidelines
+- [x] 153. Document system requirements (Node.js, Ollama, OS)
+- [x] 154. Document installation steps
 - [ ] 155. Create feedback form (Google Forms or TypeForm)
 - [ ] 156. Add questions: What did you like?
 - [ ] 157. Add questions: What didn't work?
