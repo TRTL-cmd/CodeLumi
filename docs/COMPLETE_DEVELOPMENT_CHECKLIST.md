@@ -196,15 +196,15 @@
 
 - [x] 141. Create annotated git tag: `git tag -a v0.1.0-beta -m "Beta Release v0.1.0"`
 - [x] 142. Push tag: `git push origin v0.1.0-beta`
-- [ ] 143. Go to GitHub → Releases → Draft new release
-- [ ] 144. Select tag: `v0.1.0-beta`
-- [ ] 145. Write release title: "Lumi Beta v0.1.0 - First Public Beta"
-- [ ] 146. Write release notes (features, known issues, requirements)
-- [ ] 147. Attach Windows installer (`.exe` or `.msi`)
+- [x] 143. Go to GitHub → Releases → Draft new release
+- [x] 144. Select tag: `v0.1.0-beta`
+- [x] 145. Write release title: "Lumi Beta v0.1.0 - First Public Beta"
+- [x] 146. Write release notes (features, known issues, requirements)
+- [x] 147. Attach Windows installer (`.exe` or `.msi`)
 - [ ] 148. Attach macOS installer (`.dmg`)
 - [ ] 149. Attach Linux installer (`.AppImage`)
-- [ ] 150. Mark as pre-release (beta)
-- [ ] 151. Save draft (don't publish yet)
+- [x] 150. Mark as pre-release (beta)
+- [x] 151. Save draft (don't publish yet)
 
 #### Beta Testing Setup
 
