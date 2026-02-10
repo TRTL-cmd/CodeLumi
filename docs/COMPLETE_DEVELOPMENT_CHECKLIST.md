@@ -201,8 +201,8 @@
 - [x] 145. Write release title: "Lumi Beta v0.1.0 - First Public Beta"
 - [x] 146. Write release notes (features, known issues, requirements)
 - [x] 147. Attach Windows installer (`.exe` or `.msi`)
-- [ ] 148. Attach macOS installer (`.dmg`)
-- [ ] 149. Attach Linux installer (`.AppImage`)
+- [x] 148. Attach macOS installer (`.dmg`)
+- [x] 149. Attach Linux installer (`.AppImage`)
 - [x] 150. Mark as pre-release (beta)
 - [x] 151. Save draft (don't publish yet)
 
