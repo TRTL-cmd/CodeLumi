@@ -85,9 +85,8 @@
 
 ## 🎯 IMMEDIATE NEXT STEPS (This Week)
 
-1. Publish the GitHub release (v0.1.0-beta)
-3. Announce beta (GitHub + one external channel)
-4. Monitor GitHub Issues and Typeform feedback daily
+1. Announce beta (GitHub + one external channel)
+2. Monitor GitHub Issues and Typeform feedback daily
 
 ---
 
