@@ -155,7 +155,7 @@ if (warnings === 0) {
   console.log('\n🎉 BETA CLEANUP COMPLETE!');
   console.log('\n📋 Next steps:');
   console.log('   1. Review privacy audit results above');
-  console.log('   2. Test pre-commit hook: echo "C:\\Bad\\Path" > test.txt && git add test.txt && git commit -m "test"');
+  console.log('   2. Test pre-commit hook: echo "%USERPROFILE%\\test.txt" > test.txt && git add test.txt && git commit -m "test"');
   console.log('   3. Commit changes: git add . && git commit -m "Beta cleanup complete"');
   console.log('   4. Push to GitHub: git push origin main');
   console.log('\n🚀 Ready for beta launch!');

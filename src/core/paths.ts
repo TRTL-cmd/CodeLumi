@@ -79,7 +79,7 @@ export class LumiPaths {
   public readonly progressFile: string;
 
   constructor() {
-    // In packaged builds, process.cwd() is unreliable (e.g. C:\WINDOWS\system32).
+    // In packaged builds, process.cwd() is unreliable (e.g. system32).
     // Keep projectRoot for locating app resources, but store mutable data in AppData.
     // In dev mode, use process.cwd() as before.
     this.projectRoot = app.isPackaged ? process.resourcesPath : process.cwd();

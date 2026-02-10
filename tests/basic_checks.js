@@ -11,8 +11,8 @@ function findMatches(content, regex) {
 }
 
 const repoRoot = path.resolve(__dirname, '..');
-// allowlist for known example emails or non-sensitive test addresses
-const emailAllowlist = new Set(['john@example.com']);
+// allowlist for approved contact email
+const emailAllowlist = new Set(['tortolcoin@gmail.com']);
 
 const checks = [
   {

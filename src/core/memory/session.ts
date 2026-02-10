@@ -29,7 +29,7 @@ export class SessionManager {
   // basic sanitizer to avoid persisting file paths or local absolute paths
   sanitizeText(txt: string) {
     if (!txt || typeof txt !== 'string') return '';
-    // Windows drives like C:\path\to\file
+    // Windows drive paths (redact any absolute drive prefix)
     txt = txt.replace(/[A-Za-z]:\\[^\s"'<>]*/g, '[REDACTED_PATH]');
     // Unix-like absolute paths /usr/local/bin or /home/user/file.txt
     txt = txt.replace(/\/(?:[^\s"'<>]+\/?)+/g, '[REDACTED_PATH]');

@@ -31,15 +31,10 @@ This will:
 ```bash
 # Scan all training data and KB files
 node scripts/privacy_audit.js
-
-# Output: 
-# - Console report with findings
-# - docs/privacy_audit_results.json
 ```
-
 **Detects:**
 - Email addresses
-- Absolute Windows paths (`C:\\Users\\...`)
+- Absolute Windows paths (`<WINDOWS_PATH>`)
 - UNC network paths (`\\\\SERVER\\...`)
 - Phone numbers
 - SSNs, credit cards
@@ -83,8 +78,8 @@ node scripts/redact_paths.js --all
 
 **Features:**
 - Creates `.backup` files before modifying
-- Redacts usernames: `C:\\Users\\Chris\\...` → `C:\\Users\\[REDACTED]\\...`
-- Redacts emails: `user@domain.com` → `[EMAIL_REDACTED]`
+- Redacts usernames: ``
+- Redacts emails: `[REDACTED_EMAIL]` → `[EMAIL_REDACTED]`
 - Converts absolute → relative paths
 
 ---
@@ -96,30 +91,28 @@ node scripts/redact_paths.js --all
 node scripts/setup_privacy_tools.js
 ```
 
-**Does:**
-1. Installs Husky
-2. Creates pre-commit hook
-3. Runs initial audit
-4. Shows test instructions
-
----
-
-### Build & Development
-
-#### `unwrap-kb.js`
-**Fix KB format corruption**
-
 ```bash
-# Converts old {"qa": [...]} format to new [...] format
+# Setup everything
+node scripts/setup_privacy_tools.js
+
+# Run audit
+node scripts/privacy_audit.js
+
+# Redact files (preview)
+node scripts/redact_paths.js --dry-run --all
+
+# Redact files (apply)
+node scripts/redact_paths.js --all
+
+# Fix KB format
 node scripts/unwrap-kb.js
+
+# Test pre-commit hook
+echo "${USERPROFILE}\\test.txt" > test.txt
+git add test.txt
+git commit -m "test"  # Should fail
+git reset HEAD test.txt && rm test.txt
 ```
-
-**Use when:**
-- Health monitor shows "KB is not an array"
-- Agent not scanning files
-- KB format corrupted
-
----
 
 #### `copy_models_postbuild.js` / `copy_models_postbuild.ts`
 **Copy model assets after build**
@@ -261,7 +254,7 @@ node scripts/redact_paths.js --all
 node scripts/unwrap-kb.js
 
 # Test pre-commit hook
-echo "C:\\\\Users\\\\Test\\\\test.txt" > test.txt
+echo "${USERPROFILE}\\test.txt" > test.txt
 git add test.txt
 git commit -m "test"  # Should fail
 git reset HEAD test.txt && rm test.txt

@@ -7,6 +7,27 @@ const emailRe = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 const windowsAbsRe = /[A-Za-z]:\\[\\\S]*/g; // simple heuristic
 const uncRe = /\\\\[^\\\s]+\\[^\\\s]+/g;
 
+function redactPathValue(value) {
+  if (!value || typeof value !== 'string') return value;
+  return value
+    .replace(windowsAbsRe, '[REDACTED_PATH]')
+    .replace(uncRe, '[REDACTED_PATH]');
+}
+
+function redactReport(report) {
+  report.scanned = report.scanned.map((s) => ({
+    ...s,
+    dir: redactPathValue(s.dir)
+  }));
+  report.findings = report.findings.map((f) => ({
+    ...f,
+    file: redactPathValue(f.file),
+    windowsAbs: (f.windowsAbs || []).map(redactPathValue),
+    unc: (f.unc || []).map(redactPathValue)
+  }));
+  return report;
+}
+
 async function walk(dir) {
   const results = [];
   try {
@@ -49,6 +70,9 @@ async function main() {
       }
     }
   }
+  // redact before writing results to disk
+  redactReport(report);
+
   // write results
   await fs.mkdir(path.join(process.cwd(), 'docs'), { recursive: true });
   const outJson = path.join(process.cwd(), 'docs', 'privacy_audit_results.json');
@@ -75,7 +99,7 @@ async function main() {
   mdLines.push('## Recommendations');
   mdLines.push('- Replace discovered absolute paths with basenames where possible; redact or pseudonymize emails.');
   mdLines.push('- Ensure runtime writes are sanitized before persisting to `userData`.');
-  mdLines.push('- Add CI check to fail on committed files containing `C:\\` or email patterns in `training/`.');
+  mdLines.push('- Add CI check to fail on committed files containing `<WINDOWS_PATH>` or email patterns in `training/`.');
 
   const mdOut = path.join(process.cwd(), 'docs', 'privacy_audit_2026-01-28.md');
   await fs.writeFile(mdOut, mdLines.join('\n'), 'utf8');
