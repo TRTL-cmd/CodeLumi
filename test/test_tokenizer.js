@@ -1,7 +1,7 @@
 // Simple Node test for tokenizer utilities (uses compiled dist files)
 const path = require('path');
 try {
-  const tk = require('../dist/core/tokenizer');
+  const tk = require('../dist-electron/core/tokenizer');
   const { estimateTokens, trimEntriesToTokenBudget } = tk;
   console.log('Tokenizer module loaded:', !!estimateTokens);
   const sample = 'This is a simple test sentence with several words to estimate tokens.';

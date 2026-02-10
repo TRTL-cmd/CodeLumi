@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('lumi', {
   ,
   getMetrics: async () => ipcRenderer.invoke('lumi-metrics'),
   healthCheck: async () => ipcRenderer.invoke('lumi:health-check'),
+  ollamaStatus: async () => ipcRenderer.invoke('ollama:status'),
   backupNow: async () => ipcRenderer.invoke('lumi:backup-now'),
   listBackups: async () => ipcRenderer.invoke('lumi:list-backups'),
   getLogs: async (opts?: any) => ipcRenderer.invoke('lumi:get-logs', opts || {}),
@@ -55,6 +56,9 @@ contextBridge.exposeInMainWorld('lumi', {
     },
     applyGroups: async (removeIndices: number[]) => {
       try { return await ipcRenderer.invoke('selflearn:apply-groups', removeIndices || []); } catch (_e) { return { ok: false, error: 'unavailable' }; }
+    },
+    runDedupe: async () => {
+      try { return await ipcRenderer.invoke('selflearn:run-dedupe'); } catch (_e) { return { ok: false, error: 'unavailable' }; }
     }
   }
   ,
@@ -67,6 +71,10 @@ contextBridge.exposeInMainWorld('lumi', {
   setSelflearnConfig: async (cfg: any) => ipcRenderer.invoke('selflearn:setConfig', cfg),
   runSelflearnNow: async () => ipcRenderer.invoke('selflearn:runNow')
   ,
+  kb: {
+    prune: async (threshold: number, daysOld: number) => ipcRenderer.invoke('kb:prune', threshold, daysOld),
+    detectStale: async (unusedDays: number) => ipcRenderer.invoke('kb:detectStale', unusedDays)
+  },
   // Utility: get actual app userData path on disk
   getUserDataPath: async () => ipcRenderer.invoke('app:getUserDataPath'),
   // Staging / Curator API
@@ -89,6 +97,9 @@ contextBridge.exposeInMainWorld('lumi', {
     },
     delete: async (id: string) => {
       try { return await ipcRenderer.invoke('staging:delete', id); } catch (_e) { return { ok: false, error: 'staging IPC unavailable' }; }
+    },
+    bulkTag: async (ids: string[], tag: string) => {
+      try { return await ipcRenderer.invoke('staging:bulk-tag', ids || [], tag); } catch (_e) { return { ok: false, error: 'staging IPC unavailable' }; }
     },
     // Run a self-test sequence (list -> approve safe -> reject medium -> delete malicious -> return KB)
     selfTest: async () => {
@@ -183,6 +194,13 @@ contextBridge.exposeInMainWorld('lumi', {
     // Only the main process (Lumi internals) may change the active tone.
     setTone: async (_toneId: string) => {
       return { ok: false, error: 'not-permitted' };
+    }
+  }
+  ,
+  // Sandbox API: programmatic code generation/modification
+  sandbox: {
+    generate: async (task: string, existingCode?: string, language?: string) => {
+      try { return await ipcRenderer.invoke('sandbox:generate', task, existingCode, language); } catch (_e) { return { ok: false, error: 'sandbox IPC unavailable' }; }
     }
   }
 });

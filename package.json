@@ -1,6 +1,7 @@
 {
   "name": "lumi-desktop",
-  "version": "0.1.0",
+  "version": "1.0.0",
+  "author": "am_tortol",
   "private": true,
   "main": "dist-electron/main.js",
   "scripts": {
@@ -19,7 +20,10 @@
     "package": "electron-builder",
     "prelaunch:checks": "npx tsc --noEmit && node scripts/smoke_test_production.js",
     "fine-tune-model": "node tools/fine_tune_model.mjs assets/models/Lumi.glb assets/models/Lumi_tuned.glb",
-    "normalize-model": "node tools/normalize_model.mjs assets/models/Lumi_tuned.glb assets/models/Lumi.glb"
+    "normalize-model": "node tools/normalize_model.mjs assets/models/Lumi_tuned.glb assets/models/Lumi.glb",
+    "test:e2e": "playwright test",
+    "test": "jest",
+    "test:coverage": "jest --coverage"
   },
   "dependencies": {
     "dexie": "^3.2.3",
@@ -30,6 +34,8 @@
   },
   "devDependencies": {
     "@gltf-transform/core": "^4.3.0",
+    "@playwright/test": "^1.54.2",
+    "@types/jest": "^30.0.0",
     "@types/react": "^19.2.8",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.0.0",
@@ -38,7 +44,9 @@
     "electron": "^39.2.7",
     "electron-builder": "^23.6.0",
     "husky": "^8.0.3",
+    "jest": "^30.2.0",
     "sharp": "^0.34.5",
+    "ts-jest": "^29.4.6",
     "typescript": "^5.1.6",
     "vite": "^5.0.0"
   },
@@ -48,7 +56,7 @@
   },
   "build": {
     "appId": "com.tortolstudios.lumi",
-    "productName": "Lumi Desktop",
+    "productName": "Lumi",
     "directories": {
       "output": "release",
       "buildResources": "build"
@@ -63,6 +71,19 @@
         "nsis"
       ],
       "icon": "build/icon.ico"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "icon": "build/icon.icns"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "icon": "build/icon.png"
     },
     "nsis": {
       "oneClick": false,

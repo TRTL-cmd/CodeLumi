@@ -15,6 +15,7 @@ export default class KnowledgeProcessor {
   private kbFileInFolder: string;
   private repoTrainingDir: string;
   private memory: MemoryStore | null;
+  private cleanupTimer: NodeJS.Timeout | null = null;
 
   constructor(userDataPathOrPaths?: string | LumiPaths) {
     // Support both old API (userDataPath string) and new API (LumiPaths object)
@@ -86,6 +87,140 @@ export default class KnowledgeProcessor {
     let s = 0;
     for (let i = 0; i < a.length; i++) s += (a[i] || 0) * (b[i] || 0);
     return s;
+  }
+
+  private async loadKbEntries(): Promise<any[]> {
+    try {
+      const raw = await fs.readFile(this.kbFile, 'utf8');
+      const parsed = JSON.parse(raw || '[]');
+      if (Array.isArray(parsed)) return parsed;
+      if (parsed && Array.isArray(parsed.qa)) return parsed.qa;
+      return [];
+    } catch (_e) {
+      return [];
+    }
+  }
+
+  private async writeKbEntries(entries: any[]) {
+    await fs.writeFile(this.kbFile, JSON.stringify(entries, null, 2), 'utf8');
+
+    try {
+      const repoKb = path.join(this.repoTrainingDir, 'lumi_knowledge.json');
+      await fs.mkdir(this.repoTrainingDir, { recursive: true });
+      await fs.writeFile(repoKb, JSON.stringify(entries, null, 2), 'utf8');
+    } catch (_e) { }
+
+    try {
+      const repoTraining = path.join(process.cwd(), 'training');
+      await fs.mkdir(repoTraining, { recursive: true });
+      const trainingFile = path.join(repoTraining, 'lumi_knowledge.json');
+      const sanitized = (entries || []).map((e: any) => {
+        const copy: any = Object.assign({}, e);
+        try { copy.file = copy.file ? path.basename(String(copy.file)) : '[REDACTED]'; } catch (_){ copy.file = '[REDACTED]'; }
+        try { copy.q = this.redact(String(copy.q || '')); } catch (_){ }
+        try { copy.a = this.redact(String(copy.a || '')); } catch (_){ }
+        return copy;
+      });
+      await fs.writeFile(trainingFile, JSON.stringify(sanitized, null, 2), 'utf8');
+    } catch (_e) { }
+  }
+
+  private parseEntryTimestamp(entry: any, keys: string[]): number | null {
+    for (const key of keys) {
+      const v = entry ? entry[key] : null;
+      if (!v) continue;
+      if (typeof v === 'number' && Number.isFinite(v)) return v;
+      if (typeof v === 'string') {
+        const t = Date.parse(v);
+        if (!Number.isNaN(t)) return t;
+      }
+    }
+    return null;
+  }
+
+  async pruneByConfidence(threshold: number, daysOld: number) {
+    try {
+      const minConfidence = Number.isFinite(threshold) ? threshold : 0.6;
+      const ageDays = Math.max(1, Number(daysOld) || 30);
+      const cutoff = Date.now() - ageDays * 24 * 60 * 60 * 1000;
+
+      const existing = await this.loadKbEntries();
+      const kept: any[] = [];
+      const removed: any[] = [];
+
+      for (const entry of existing) {
+        const conf = typeof entry?.confidence === 'number' ? entry.confidence : 1;
+        const learnedAt = this.parseEntryTimestamp(entry, ['learned', 'date', 'timestamp', 'createdAt']);
+        const isOld = learnedAt ? learnedAt <= cutoff : false;
+        if (conf < minConfidence && isOld) removed.push(entry);
+        else kept.push(entry);
+      }
+
+      await this.writeKbEntries(kept);
+
+      try {
+        const auditFile = path.join(this.repoTrainingDir, 'selflearn_audit.jsonl');
+        const auditEntry = {
+          timestamp: new Date().toISOString(),
+          type: 'kb-prune',
+          removedCount: removed.length,
+          remaining: kept.length,
+          threshold: minConfidence,
+          daysOld: ageDays
+        };
+        await fs.appendFile(auditFile, JSON.stringify(auditEntry) + '\n', 'utf8');
+      } catch (_e) { }
+
+      return { ok: true, removedCount: removed.length, remaining: kept.length };
+    } catch (e: any) {
+      return { ok: false, error: e?.message || String(e) };
+    }
+  }
+
+  async detectStaleEntries(unusedDays: number) {
+    try {
+      const ageDays = Math.max(1, Number(unusedDays) || 30);
+      const cutoff = Date.now() - ageDays * 24 * 60 * 60 * 1000;
+      const existing = await this.loadKbEntries();
+
+      const stale = existing.map((entry, index) => {
+        const lastUsed = this.parseEntryTimestamp(entry, [
+          'lastUsed', 'last_used', 'usedAt', 'used_at', 'accessedAt', 'updatedAt'
+        ]);
+        const learnedAt = this.parseEntryTimestamp(entry, ['learned', 'date', 'timestamp', 'createdAt']);
+        const isStale = lastUsed ? lastUsed <= cutoff : (learnedAt ? learnedAt <= cutoff : false);
+        if (!isStale) return null;
+        return {
+          index,
+          q: entry?.q,
+          a: entry?.a,
+          confidence: entry?.confidence,
+          learned: entry?.learned || entry?.date || null,
+          lastUsed: entry?.lastUsed || entry?.usedAt || entry?.accessedAt || null,
+          reason: lastUsed ? 'last-used-old' : 'no-usage-data'
+        };
+      }).filter(Boolean) as any[];
+
+      return { ok: true, staleCount: stale.length, stale, days: ageDays };
+    } catch (e: any) {
+      return { ok: false, error: e?.message || String(e), stale: [] };
+    }
+  }
+
+  scheduledCleanup(opts?: { threshold?: number; daysOld?: number; unusedDays?: number; intervalMs?: number }) {
+    if (this.cleanupTimer) return { ok: true, running: true };
+    const threshold = typeof opts?.threshold === 'number' ? opts?.threshold : 0.6;
+    const daysOld = typeof opts?.daysOld === 'number' ? opts?.daysOld : 30;
+    const intervalMs = typeof opts?.intervalMs === 'number' ? opts?.intervalMs : 7 * 24 * 60 * 60 * 1000;
+
+    const run = async () => {
+      try { await this.pruneByConfidence(threshold, daysOld); } catch (_e) { }
+      try { await this.detectStaleEntries(opts?.unusedDays ?? 45); } catch (_e) { }
+    };
+
+    setTimeout(run, 2000);
+    this.cleanupTimer = setInterval(run, intervalMs);
+    return { ok: true, running: true };
   }
 
   // idempotent ingest: avoids duplicate Qs (simple dedupe by question text+file)

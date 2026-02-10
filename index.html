@@ -3,7 +3,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' https:; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; style-src 'self' 'unsafe-inline' https:; connect-src 'self' https: blob: data:; img-src 'self' data: blob:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' https:; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; style-src 'self' 'unsafe-inline' https:; connect-src 'self' https: blob: data:; img-src 'self' data: blob:; worker-src 'self' blob: data:;">
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Lumi Desktop</title>
   <style>
@@ -21,7 +21,8 @@
     .qa input,.qa textarea{flex:1;padding:8px;border-radius:8px;border:1px solid #24303a;background:#07101a;color:#e6eef8;font-family:Inter,Segoe UI,Arial}
     .qa textarea{min-height:40px;max-height:240px;resize:none;overflow:auto;line-height:1.25;padding-top:8px;padding-bottom:8px}
 .bubble{position:fixed;left:24%;top:45%;transform:translate(-50%, -50%);max-width:300px;background:#ffffff;color:#0b1220;padding:12px 14px;border-radius:12px;box-shadow:0 8px 20px rgba(2,6,23,.25);white-space:pre-wrap;display:none;box-sizing:border-box;font-size:13px;line-height:1.4;overflow:auto;max-height:220px;z-index:10060;pointer-events:auto}    #codePanel{display:none}
-    .code-area{width:100%;height:220px;margin-top:10px;background:#07101a;color:#e6eef8;padding:10px;border-radius:8px;border:1px solid #24303a;font-family:Consolas,monospace;white-space:pre-wrap;overflow:auto}
+    .code-area{width:100%;height:220px;margin-top:10px;background:#07101a;color:#e6eef8;padding:10px;border-radius:8px;border:1px solid #24303a;font-family:Consolas,monospace;white-space:pre-wrap;overflow:auto;display:none}
+    #monacoContainer{width:100%;height:400px;min-height:200px;margin-top:10px;border-radius:8px;border:1px solid #24303a;overflow:hidden}
     .analysis{margin-top:8px;background:#07101a;padding:8px;border-radius:8px;border:1px solid #24303a;color:#e6eef8;max-height:260px;overflow:auto;white-space:pre-wrap}
     dialog{border-radius:8px;padding:12px;border:1px solid #24303a;background:#0b1220;color:#e6eef8}
     .tiny{background:#1f2b36;padding:6px 8px;border-radius:8px;border:none;color:#e6eef8;cursor:pointer}
@@ -29,6 +30,7 @@
   </style>
     <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+    <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.44.0/min/vs/loader.js"></script>
 </head>
 <body>
   <div id="lumi" title="Drag me">
@@ -64,7 +66,7 @@
         </div>
 
         <div style="display:flex;gap:8px;margin-top:8px">
-          <button id="openCode" class="tiny">Open Code Editor</button>
+          <button id="openCode" class="tiny">Open Code Sandbox</button>
           <button id="downloadKB" class="tiny">Download KB</button>
         </div>
 
@@ -105,6 +107,14 @@
             </div>
           </div>
 
+          <div style="margin-top:12px;border-top:1px solid #172029;padding-top:10px">
+            <strong>Onboarding</strong>
+            <div style="color:var(--muted);font-size:.82rem;margin-top:4px">Restart the guided setup wizard at any time.</div>
+            <div style="margin-top:8px">
+              <button id="restartOnboarding" class="tiny">Restart Tour</button>
+            </div>
+          </div>
+
           <div id="animationsSection" style="margin-top:12px;border-top:1px solid #172029;padding-top:10px;display:none">
             <div style="display:flex;justify-content:space-between;align-items:center">
               <strong>Animation Controls</strong>
@@ -128,6 +138,21 @@
               <button id="selflearnFolderAdd" class="tiny">Browse…</button>
               <button id="selflearnFolderSave" class="tiny">Save Folders</button>
             </div>
+          </div>
+
+          <div style="margin-top:12px;border-top:1px solid #172029;padding-top:10px">
+            <strong>Knowledge Base Cleanup</strong>
+            <div style="color:var(--muted);font-size:.82rem;margin-top:4px">Remove low-confidence entries after N days, or detect stale entries that are no longer used.</div>
+            <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+              <input id="kbPruneThreshold" type="number" min="0" max="1" step="0.05" value="0.6" style="width:90px" />
+              <input id="kbPruneDays" type="number" min="1" step="1" value="30" style="width:90px" />
+              <button id="kbPruneBtn" class="tiny">Prune Low Confidence</button>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+              <input id="kbStaleDays" type="number" min="1" step="1" value="45" style="width:90px" />
+              <button id="kbStaleBtn" class="tiny">Detect Stale Entries</button>
+            </div>
+            <div id="kbPruneStats" style="margin-top:8px;color:var(--muted);font-size:.82rem"></div>
           </div>
         </div>
 
@@ -180,12 +205,14 @@
           <strong>Security Curator</strong>
           <div><button id="closeCurator" class="tiny">Close</button></div>
         </div>
-        <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+        <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <button id="curatorRefresh" class="tiny">Refresh</button>
           <button id="curatorArchives" class="tiny">Archives</button>
           <button id="curatorSuggestions" class="tiny">Suggestions</button>
+          <button id="curatorDuplicates" class="tiny">Duplicates</button>
           <span id="curatorStatus" style="color:var(--muted);margin-left:8px">Loading…</span>
         </div>
+        <div id="curatorBulkBar" style="margin-top:8px;display:none;gap:8px;flex-wrap:wrap;align-items:center"></div>
         <div id="curatorList" style="margin-top:12px;max-height:420px;overflow:auto;padding:8px;border-radius:8px;border:1px solid #172029;background:#0b1220"></div>
       </div>
 
@@ -193,13 +220,14 @@
 
   
 
-  <div id="codePanel" style="position:fixed;left:24px;bottom:24px;width:720px;display:none;z-index:9999">
-    <div style="background:linear-gradient(180deg,#0b1220,#06101a);padding:10px;border-radius:12px;border:1px solid #24303a;box-shadow:0 18px 60px rgba(2,6,23,.6);color:#e6eef8">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <div><strong>Code Editor & Analyzer</strong> <span id="codeLangBadge" style="margin-left:8px;font-size:12px;color:var(--muted)"></span></div>
-        <div><button id="closeCode" class="tiny">Close</button></div>
+  <div id="codePanel" style="position:fixed;left:24px;bottom:24px;width:60vw;max-width:1000px;min-width:400px;display:none;z-index:9999">
+    <div style="background:linear-gradient(180deg,#0b1220,#06101a);padding:10px;border-radius:12px;border:1px solid #24303a;box-shadow:0 18px 60px rgba(2,6,23,.6);color:#e6eef8;display:flex;flex-direction:column">
+      <div id="codePanelHeader" style="display:flex;justify-content:space-between;align-items:center">
+        <div><strong>Code Sandbox</strong> <span id="codeLangBadge" style="margin-left:8px;font-size:12px;color:var(--muted)"></span></div>
+        <div style="display:flex;gap:6px;align-items:center"><button id="clearSandbox" class="tiny">Clear</button><button id="closeCode" class="tiny">Close</button></div>
       </div>
       <textarea id="codeInput" class="code-area" placeholder="// Paste code here (JS/Python/C/C++)"></textarea>
+      <div id="monacoContainer"></div>
       <div id="reactEditorMount" style="display:none;margin-top:8px"></div>
       <div style="display:flex;gap:8px;margin-top:8px">
         <button id="analyze">Analyze & Fix</button>
@@ -284,7 +312,9 @@
     const scoreEl = document.getElementById('score');
     const openCode = document.getElementById('openCode');
     const codePanel = document.getElementById('codePanel');
+    const codePanelHeader = document.getElementById('codePanelHeader');
     const closeCode = document.getElementById('closeCode');
+    const clearSandbox = document.getElementById('clearSandbox');
     const codeInput = document.getElementById('codeInput');
     const analyzeBtn = document.getElementById('analyze');
     const formatBtn = document.getElementById('format');
@@ -332,6 +362,183 @@
     // safeAdd available for modal helpers (guards against null elements)
     function safeAdd(el, ev, cb, opts) {
       try { if (el && typeof el.addEventListener === 'function') el.addEventListener(ev, cb, opts); else return; } catch (e) { console.warn('safeAdd failed', e); }
+    }
+
+    // --- Monaco Editor Setup ---
+    let monacoEditor = null;
+    const MONACO_LANG_MAP = { javascript: 'javascript', js: 'javascript', python: 'python', py: 'python', typescript: 'typescript', ts: 'typescript', html: 'html', css: 'css', json: 'json', c: 'c', cpp: 'cpp', 'c++': 'cpp', java: 'java', rust: 'rust', go: 'go', lua: 'lua' };
+    function mapLangToMonaco(lang) { if (!lang || lang === 'auto' || lang === 'text') return 'javascript'; return MONACO_LANG_MAP[lang.toLowerCase()] || lang.toLowerCase(); }
+
+    try {
+      if (typeof require !== 'undefined' && typeof require.config === 'function') {
+        require.config({ paths: { 'vs': 'https://cdn.jsdelivr.net/npm/monaco-editor@0.44.0/min/vs' } });
+        require(['vs/editor/editor.main'], function () {
+          try {
+            monaco.editor.defineTheme('lumiDark', {
+              base: 'vs-dark', inherit: true, rules: [],
+              colors: { 'editor.background': '#07101a', 'editor.foreground': '#e6eef8' }
+            });
+            monacoEditor = monaco.editor.create(document.getElementById('monacoContainer'), {
+              value: '', language: 'javascript', theme: 'lumiDark',
+              minimap: { enabled: false }, automaticLayout: true, wordWrap: 'on',
+              scrollBeyondLastLine: false, fontSize: 13, fontFamily: 'Consolas, monospace',
+              tabSize: 2, renderWhitespace: 'none', lineNumbers: 'on',
+            });
+            // Wire Monaco changes to backing textarea and project files
+            monacoEditor.onDidChangeModelContent(function () {
+              try {
+                var val = monacoEditor.getValue();
+                if (codeInput) codeInput.value = val;
+                var mainPath = (codeInput && codeInput.dataset && codeInput.dataset.path) || 'main.js';
+                var files = typeof loadProjectFiles === 'function' ? loadProjectFiles() : [];
+                var f = files.find(function (x) { return x.path === mainPath; });
+                if (f) { f.code = val; if (typeof saveProjectFiles === 'function') saveProjectFiles(files); }
+                if (window.editorRuntime && window.editorRuntime._onFileChange) window.editorRuntime._onFileChange(mainPath, val);
+              } catch (e) { }
+            });
+            console.log('[Lumi] Monaco Editor initialized');
+          } catch (e) { console.warn('[Lumi] Monaco init failed, falling back to textarea', e); }
+        });
+      }
+    } catch (e) { console.warn('[Lumi] Monaco loader not available, using textarea fallback', e); }
+
+    // Editor wrapper functions — all code reads/writes go through these
+    function setEditorCode(code, language) {
+      try {
+        if (monacoEditor) {
+          var model = monacoEditor.getModel();
+          if (language) { try { monaco.editor.setModelLanguage(model, mapLangToMonaco(language)); } catch (_) { } }
+          monacoEditor.setValue(code || '');
+        }
+        if (codeInput) codeInput.value = code || '';
+      } catch (e) { if (codeInput) codeInput.value = code || ''; }
+    }
+    function getEditorCode() {
+      try { if (monacoEditor) return monacoEditor.getValue(); } catch (_) { }
+      return (codeInput && codeInput.value) || '';
+    }
+    function setEditorLanguage(lang) {
+      try {
+        if (monacoEditor && typeof monaco !== 'undefined') {
+          monaco.editor.setModelLanguage(monacoEditor.getModel(), mapLangToMonaco(lang));
+        }
+      } catch (_) { }
+    }
+
+    // --- Code Merge Logic ---
+    function detectMergeStrategy(existing, incoming) {
+      if (!existing || !existing.trim()) return 'set';
+      // Check if incoming is a full rewrite (has imports/full structure)
+      var hasImports = /^(import |from |require\(|#include|using |package )/.test(incoming.trim());
+      var hasDoctype = /^<!doctype|^<html/i.test(incoming.trim());
+      if (hasImports || hasDoctype) return 'full-replacement';
+      // Check if incoming defines functions/classes that exist in the current code
+      var incomingNames = [];
+      var fnPattern = /(?:function\s+(\w+)|(?:const|let|var)\s+(\w+)\s*=\s*(?:function|\(|async)|class\s+(\w+))/g;
+      var m;
+      while ((m = fnPattern.exec(incoming)) !== null) { incomingNames.push(m[1] || m[2] || m[3]); }
+      if (incomingNames.length > 0) {
+        var existingHasAny = incomingNames.some(function (name) {
+          return new RegExp('(?:function\\s+' + name + '|(?:const|let|var)\\s+' + name + '\\s*=|class\\s+' + name + ')').test(existing);
+        });
+        if (existingHasAny) return 'replace-function';
+      }
+      return 'append';
+    }
+
+    function replaceFunctionInCode(existing, incoming) {
+      // Extract function/class names from incoming
+      var fnPattern = /(?:function\s+(\w+)|(?:const|let|var)\s+(\w+)\s*=\s*(?:function|\(|async)|class\s+(\w+))/g;
+      var result = existing;
+      var m;
+      while ((m = fnPattern.exec(incoming)) !== null) {
+        var name = m[1] || m[2] || m[3];
+        if (!name) continue;
+        // Find and replace the function in existing code by matching braces
+        var patterns = [
+          new RegExp('(function\\s+' + name + '\\s*\\([^)]*\\)\\s*\\{)', 'g'),
+          new RegExp('((?:const|let|var)\\s+' + name + '\\s*=\\s*(?:function\\s*)?\\([^)]*\\)\\s*(?:=>\\s*)?\\{)', 'g'),
+          new RegExp('(class\\s+' + name + '\\s*(?:extends\\s+\\w+\\s*)?\\{)', 'g'),
+        ];
+        for (var p = 0; p < patterns.length; p++) {
+          var match = patterns[p].exec(result);
+          if (match) {
+            // Find the closing brace by counting
+            var start = match.index;
+            var depth = 0; var end = start;
+            for (var i = start; i < result.length; i++) {
+              if (result[i] === '{') depth++;
+              if (result[i] === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
+            }
+            // Replace the old function with the incoming code's version
+            var incomingMatch = patterns[p].exec(incoming);
+            if (incomingMatch) {
+              var iStart = incomingMatch.index; var iDepth = 0; var iEnd = iStart;
+              for (var j = iStart; j < incoming.length; j++) {
+                if (incoming[j] === '{') iDepth++;
+                if (incoming[j] === '}') { iDepth--; if (iDepth === 0) { iEnd = j + 1; break; } }
+              }
+              result = result.slice(0, start) + incoming.slice(iStart, iEnd) + result.slice(end);
+            }
+            break;
+          }
+        }
+      }
+      return result;
+    }
+
+    function mergeCodeIntoEditor(newCode, language) {
+      var currentCode = getEditorCode();
+      var strategy = detectMergeStrategy(currentCode, newCode);
+      switch (strategy) {
+        case 'set':
+        case 'full-replacement':
+          setEditorCode(newCode, language);
+          break;
+        case 'replace-function':
+          var merged = replaceFunctionInCode(currentCode, newCode);
+          // Also append any new functions not in existing code
+          var fnPattern = /(?:function\s+(\w+)|(?:const|let|var)\s+(\w+)\s*=\s*(?:function|\(|async)|class\s+(\w+))/g;
+          var m; var newFuncs = [];
+          while ((m = fnPattern.exec(newCode)) !== null) {
+            var name = m[1] || m[2] || m[3];
+            if (name && !new RegExp('(?:function\\s+' + name + '|(?:const|let|var)\\s+' + name + '\\s*=|class\\s+' + name + ')').test(currentCode)) {
+              newFuncs.push(name);
+            }
+          }
+          if (newFuncs.length > 0) {
+            // Append portions of incoming that define brand-new functions
+            merged = merged + '\n\n' + newCode;
+          }
+          setEditorCode(merged, language);
+          break;
+        case 'append':
+        default:
+          setEditorCode(currentCode + '\n\n' + newCode, language);
+          break;
+      }
+      // Update coding session
+      try { var session = loadCodingSession(); session.active = true; session.language = language || session.language; session.lastActivityTs = Date.now(); saveCodingSession(session); } catch (_) { }
+      return true;
+    }
+
+    // Expose a single sandbox API so other UI layers can reuse the same editor
+    try{
+      window.codeSandbox = {
+        open: function(){ try{ if (codePanel) codePanel.style.display = 'block'; updateSandboxStatus(); }catch(_){ } },
+        merge: function(code, lang){ return mergeCodeIntoEditor(String(code || ''), lang || 'text'); },
+        setLanguage: function(lang){ try{ if (codeInput) codeInput.dataset.lang = lang || 'text'; const badge = document.getElementById('codeLangBadge'); if (badge) badge.textContent = lang || ''; }catch(_){ } }
+      };
+    }catch(_){ }
+
+    // --- Coding Session Persistence ---
+    var CODING_SESSION_KEY = 'lumi_coding_session_v1';
+    function loadCodingSession() {
+      try { return JSON.parse(localStorage.getItem(CODING_SESSION_KEY) || 'null') || { active: false, language: null, lastActivityTs: 0 }; }
+      catch (_) { return { active: false, language: null, lastActivityTs: 0 }; }
+    }
+    function saveCodingSession(session) {
+      try { localStorage.setItem(CODING_SESSION_KEY, JSON.stringify(session)); } catch (_) { }
     }
 
     // dialog-based input/confirm helpers (avoid window.prompt/confirm)
@@ -400,6 +607,15 @@
     const curatorRefresh = document.getElementById('curatorRefresh');
     const curatorStatus = document.getElementById('curatorStatus');
     const closeCurator = document.getElementById('closeCurator');
+    const curatorBulkBar = document.getElementById('curatorBulkBar');
+    const curatorDuplicatesBtn = document.getElementById('curatorDuplicates');
+
+    let curatorMode = 'staging';
+    const selectedStagingIds = new Set();
+    const selectedSuggestionIds = new Set();
+    const selectedArchiveEntries = new Set();
+    const selectedDuplicateGroups = new Set();
+    let currentArchiveContext = null;
 
     // small helper to safely attach listeners to elements that may be missing
     function safeAdd(el, ev, cb, opts) {
@@ -411,33 +627,152 @@
       try { const d = document.createElement('div'); d.textContent = String(text == null ? '' : text); return d.innerHTML; } catch (e) { return String(text); }
     }
 
+    function downloadJson(filename, data) {
+      try {
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => { try { URL.revokeObjectURL(url); a.remove(); } catch (_) {} }, 0);
+      } catch (e) { console.warn('downloadJson failed', e); }
+    }
+
+    function syncSelection(selection, validIds) {
+      try {
+        const valid = new Set(validIds.map(v => String(v)));
+        Array.from(selection).forEach((id) => { if (!valid.has(String(id))) selection.delete(id); });
+      } catch (_e) { }
+    }
+
+    function renderBulkBar(opts) {
+      if (!curatorBulkBar) return;
+      curatorBulkBar.innerHTML = '';
+      if (!opts || !opts.visible) {
+        curatorBulkBar.style.display = 'none';
+        return;
+      }
+      curatorBulkBar.style.display = 'flex';
+      const count = document.createElement('div');
+      count.style.color = 'var(--muted)';
+      count.textContent = `${opts.selected || 0} selected${Number.isFinite(opts.total) ? ' / ' + opts.total : ''}`;
+      curatorBulkBar.appendChild(count);
+      (opts.actions || []).forEach((a) => {
+        const b = document.createElement('button');
+        b.textContent = a.label;
+        b.className = a.tiny ? 'tiny' : '';
+        if (a.id) b.id = a.id;
+        if (a.disabled) b.disabled = true;
+        if (a.onClick) safeAdd(b, 'click', a.onClick);
+        curatorBulkBar.appendChild(b);
+      });
+    }
+
     async function renderCuratorItems() {
+      curatorMode = 'staging';
+      currentArchiveContext = null;
       curatorStatus.textContent = 'Loading…';
       try {
         const res = await (window.lumi && window.lumi.staging ? window.lumi.staging.list() : { ok: false });
         if (!res || !res.ok) {
           curatorStatus.textContent = 'Error loading staging';
           curatorList.innerHTML = '<div style="color:#f88">Failed to load staging items</div>';
+          renderBulkBar({ visible: false });
           return;
         }
         const items = res.items || [];
+        const itemIds = items.map(it => String(it.id));
+        syncSelection(selectedStagingIds, itemIds);
         curatorStatus.textContent = `${items.length} pending`;
+
+        renderBulkBar({
+          visible: true,
+          selected: selectedStagingIds.size,
+          total: items.length,
+          actions: [
+            { label: 'Select all', tiny: true, onClick: () => { itemIds.forEach(id => selectedStagingIds.add(id)); renderCuratorItems(); } },
+            { label: 'Clear', tiny: true, onClick: () => { selectedStagingIds.clear(); renderCuratorItems(); } },
+            { label: 'Tag selected', tiny: true, disabled: selectedStagingIds.size === 0, onClick: async () => {
+              const tag = await askInput('Tag selected items:', 'reviewed');
+              if (!tag) return;
+              const ids = Array.from(selectedStagingIds);
+              const resTag = await (window.lumi && window.lumi.staging && window.lumi.staging.bulkTag ? window.lumi.staging.bulkTag(ids, tag) : { ok: false });
+              if (!resTag || !resTag.ok) say('Tagging failed', 1800, { feedback: false });
+              await renderCuratorItems();
+            }},
+            { label: 'Approve selected', disabled: selectedStagingIds.size === 0, onClick: async () => {
+              const ids = Array.from(selectedStagingIds);
+              curatorStatus.textContent = `Approving ${ids.length}…`;
+              for (const id of ids) {
+                await (window.lumi && window.lumi.staging ? window.lumi.staging.approve(id, undefined, 'curator-ui-batch') : Promise.resolve());
+              }
+              selectedStagingIds.clear();
+              await renderCuratorItems();
+            }},
+            { label: 'Reject selected', disabled: selectedStagingIds.size === 0, onClick: async () => {
+              const reason = await askInput('Rejection reason (batch):', 'manual-review');
+              if (reason == null) return;
+              const ids = Array.from(selectedStagingIds);
+              curatorStatus.textContent = `Rejecting ${ids.length}…`;
+              for (const id of ids) {
+                await (window.lumi && window.lumi.staging ? window.lumi.staging.reject(id, reason || 'manual-review') : Promise.resolve());
+              }
+              selectedStagingIds.clear();
+              await renderCuratorItems();
+            }},
+            { label: 'Delete selected', disabled: selectedStagingIds.size === 0, onClick: async () => {
+              if (!confirm(`Delete ${selectedStagingIds.size} staging item(s)?`)) return;
+              const ids = Array.from(selectedStagingIds);
+              curatorStatus.textContent = `Deleting ${ids.length}…`;
+              for (const id of ids) {
+                await (window.lumi && window.lumi.staging ? window.lumi.staging.delete(id) : Promise.resolve());
+              }
+              selectedStagingIds.clear();
+              await renderCuratorItems();
+            }},
+            { label: 'Export selected', tiny: true, disabled: selectedStagingIds.size === 0, onClick: () => {
+              const byId = new Map(items.map(i => [String(i.id), i]));
+              const payload = Array.from(selectedStagingIds).map(id => byId.get(String(id))).filter(Boolean);
+              downloadJson('staging_selected.json', payload);
+            }}
+          ]
+        });
+
         curatorList.innerHTML = '';
+        const frag = document.createDocumentFragment();
         for (const it of items) {
           const el = document.createElement('div');
           el.style.border = '1px solid #24303a';
           el.style.padding = '8px';
           el.style.marginBottom = '8px';
+          const header = document.createElement('div');
+          header.style.display = 'flex';
+          header.style.alignItems = 'center';
+          header.style.gap = '8px';
+          const cb = document.createElement('input');
+          cb.type = 'checkbox';
+          cb.checked = selectedStagingIds.has(String(it.id));
+          safeAdd(cb, 'change', () => {
+            if (cb.checked) selectedStagingIds.add(String(it.id)); else selectedStagingIds.delete(String(it.id));
+            renderCuratorItems();
+          });
           const idDiv = document.createElement('div'); idDiv.textContent = 'ID: ' + String(it.id);
+          header.appendChild(cb); header.appendChild(idDiv);
+
           const qDiv = document.createElement('div'); qDiv.textContent = 'Q: ' + String(it.q || '');
           const aDiv = document.createElement('div'); aDiv.textContent = 'A: ' + String(it.a || '');
+          const tags = Array.isArray(it.tags) && it.tags.length ? `Tags: ${it.tags.join(', ')}` : '';
+          const tagsDiv = document.createElement('div'); tagsDiv.style.fontSize = '12px'; tagsDiv.style.color = '#9aa4b2'; tagsDiv.textContent = tags;
           const actionsDiv = document.createElement('div'); actionsDiv.style.marginTop = '6px';
           const approveBtn = document.createElement('button'); approveBtn.textContent = 'Approve';
           const rejectBtn = document.createElement('button'); rejectBtn.textContent = 'Reject'; rejectBtn.style.marginLeft = '8px';
           const deleteBtn = document.createElement('button'); deleteBtn.textContent = 'Delete'; deleteBtn.style.marginLeft = '8px';
           actionsDiv.appendChild(approveBtn); actionsDiv.appendChild(rejectBtn); actionsDiv.appendChild(deleteBtn);
-          el.appendChild(idDiv); el.appendChild(qDiv); el.appendChild(aDiv); el.appendChild(actionsDiv);
-          curatorList.appendChild(el);
+          el.appendChild(header); el.appendChild(qDiv); el.appendChild(aDiv); if (tags) el.appendChild(tagsDiv); el.appendChild(actionsDiv);
+          frag.appendChild(el);
+
           safeAdd(approveBtn, 'click', async ()=>{
             try{
               approveBtn.disabled = true;
@@ -477,6 +812,7 @@
             finally { try{ deleteBtn.disabled = false; }catch(_){ } await renderCuratorItems(); }
           });
         }
+        curatorList.appendChild(frag);
         if (items.length === 0) curatorList.innerHTML = '<div style="color:var(--muted)">No threats detected</div>';
       } catch (e) {
         curatorStatus.textContent = 'Error';
@@ -484,14 +820,25 @@
       }
     }
 
+    function refreshCuratorView(){
+      if (curatorMode === 'archives') return renderArchiveList();
+      if (curatorMode === 'archives-entries' && currentArchiveContext) return renderArchiveEntries(currentArchiveContext);
+      if (curatorMode === 'suggestions') return renderSuggestionsList();
+      if (curatorMode === 'duplicates') return renderDuplicateGroups();
+      return renderCuratorItems();
+    }
+
     if (openCurator) openCurator.addEventListener('click', (ev)=>{ 
       // Prefer React SecurityCurator when available (mount script will render it).
       try{ if (window && window.SecurityCurator) { return; } }catch(_){ }
       curatorPanel.style.display = 'block'; renderCuratorItems();
     });
-    if (curatorRefresh) curatorRefresh.addEventListener('click', ()=> renderCuratorItems());
+    if (curatorRefresh) curatorRefresh.addEventListener('click', ()=> refreshCuratorView());
     const curatorArchivesBtn = document.getElementById('curatorArchives');
     async function renderArchiveList(){
+      curatorMode = 'archives';
+      currentArchiveContext = null;
+      renderBulkBar({ visible: false });
       curatorStatus.textContent = 'Loading archives…';
       try{
         const res = await (window.lumi && window.lumi.session ? window.lumi.session.listArchives() : { ok: false });
@@ -507,51 +854,7 @@
           const delFile = document.createElement('button'); delFile.textContent='Delete file'; delFile.className='tiny'; delFile.style.marginLeft='8px';
           btnRow.appendChild(openBtn); btnRow.appendChild(delFile);
           el.appendChild(nameDiv); el.appendChild(btnRow); curatorList.appendChild(el);
-          safeAdd(openBtn, 'click', async ()=>{
-            try{
-              const rr = await (window.lumi && window.lumi.session ? window.lumi.session.readArchive(a.path) : { ok: false });
-              if(!rr || !rr.ok){ curatorStatus.textContent = 'Failed to read archive'; return; }
-              // render entries
-              const entries = rr.entries || [];
-              curatorList.innerHTML = '';
-              const hdr = document.createElement('div'); hdr.style.fontWeight='700'; hdr.textContent = `Archive: ${a.name} (${entries.length})`; curatorList.appendChild(hdr);
-              for(let i=0;i<entries.length;i++){
-                const it = entries[i];
-                const row = document.createElement('div'); row.style.borderTop='1px solid #172029'; row.style.padding='8px';
-                const meta = document.createElement('div'); meta.style.fontSize='12px'; meta.style.color='#9aa4b2'; meta.textContent = `#${i} • ${new Date(it.t||Date.now()).toLocaleString()} • ${it.role||''}`;
-                const ta = document.createElement('textarea'); ta.style.width='100%'; ta.style.minHeight='64px'; ta.value = String(it.text || it.raw || '');
-                const controls = document.createElement('div'); controls.style.marginTop='6px';
-                const accept = document.createElement('button'); accept.textContent='Accept'; accept.className='tiny';
-                const reject = document.createElement('button'); reject.textContent='Reject'; reject.className='tiny'; reject.style.marginLeft='8px';
-                const del = document.createElement('button'); del.textContent='Delete'; del.className='tiny'; del.style.marginLeft='8px';
-                controls.appendChild(accept); controls.appendChild(reject); controls.appendChild(del);
-                row.appendChild(meta); row.appendChild(ta); row.appendChild(controls); curatorList.appendChild(row);
-
-                safeAdd(accept, 'click', async ()=>{
-                  try{
-                    const payload = [{ role: it.role, text: ta.value, t: it.t, meta: it.meta }];
-                    const pres = await (window.lumi && window.lumi.session ? window.lumi.session.promoteSelected(payload) : { ok: false });
-                    if(pres && pres.ok) { say('Accepted entry'); } else { say('Accept failed'); }
-                  }catch(e){ console.warn(e); say('Accept failed'); }
-                });
-                safeAdd(reject, 'click', async ()=>{
-                  try{
-                    const pres = await (window.lumi && window.lumi.session ? window.lumi.session.moveEntryToRejected(a.path, i) : { ok: false });
-                    if(pres && pres.ok) { say('Moved to rejected'); row.remove(); } else { say('Reject failed'); }
-                  }catch(e){ console.warn(e); say('Reject failed'); }
-                });
-                safeAdd(del, 'click', async ()=>{
-                  try{
-                    const pres = await (window.lumi && window.lumi.session ? window.lumi.session.deleteArchiveEntry(a.path, i) : { ok: false });
-                    if(pres && pres.ok) { say('Deleted'); row.remove(); } else { say('Delete failed'); }
-                  }catch(e){ console.warn(e); say('Delete failed'); }
-                });
-              }
-              // back button
-              const back = document.createElement('div'); back.style.marginTop='12px'; const backBtn = document.createElement('button'); backBtn.textContent='Back'; backBtn.className='tiny'; back.appendChild(backBtn); curatorList.appendChild(back);
-              safeAdd(backBtn, 'click', ()=> renderArchiveList());
-            }catch(e){ console.warn('open archive failed', e); curatorStatus.textContent='Open failed'; }
-          });
+          safeAdd(openBtn, 'click', async ()=>{ await renderArchiveEntries(a); });
           safeAdd(delFile, 'click', async ()=>{
             try{
               if(!confirm('Delete this archive file?')) return;
@@ -565,6 +868,102 @@
       }catch(e){ console.warn('renderArchiveList failed', e); curatorStatus.textContent='Error'; curatorList.innerHTML = `<div style="color:#f88">${String(e)}</div>`; }
     }
     if(curatorArchivesBtn) curatorArchivesBtn.addEventListener('click', ()=>{ curatorPanel.style.display='block'; renderArchiveList(); });
+    async function renderArchiveEntries(archive){
+      try{
+        const rr = await (window.lumi && window.lumi.session ? window.lumi.session.readArchive(archive.path) : { ok: false });
+        if(!rr || !rr.ok){ curatorStatus.textContent = 'Failed to read archive'; return; }
+        const entries = rr.entries || [];
+        curatorMode = 'archives-entries';
+        currentArchiveContext = { path: archive.path, name: archive.name, entries };
+        const entryIds = entries.map((_, idx) => String(idx));
+        syncSelection(selectedArchiveEntries, entryIds);
+        curatorList.innerHTML = '';
+        const hdr = document.createElement('div'); hdr.style.fontWeight='700'; hdr.textContent = `Archive: ${archive.name} (${entries.length})`; curatorList.appendChild(hdr);
+
+        renderBulkBar({
+          visible: true,
+          selected: selectedArchiveEntries.size,
+          total: entries.length,
+          actions: [
+            { label: 'Select all', tiny: true, onClick: () => { entryIds.forEach(id => selectedArchiveEntries.add(id)); renderArchiveEntries(archive); } },
+            { label: 'Clear', tiny: true, onClick: () => { selectedArchiveEntries.clear(); renderArchiveEntries(archive); } },
+            { label: 'Accept selected', disabled: selectedArchiveEntries.size === 0, onClick: async () => {
+              const idxs = Array.from(selectedArchiveEntries).map(i => Number(i)).filter(n => Number.isFinite(n));
+              const payload = idxs.map(i => entries[i]).filter(Boolean).map(it => ({ role: it.role, text: it.text, t: it.t, meta: it.meta }));
+              if (!payload.length) return;
+              const pres = await (window.lumi && window.lumi.session ? window.lumi.session.promoteSelected(payload) : { ok: false });
+              if(pres && pres.ok) { say('Accepted entries'); } else { say('Accept failed'); }
+              selectedArchiveEntries.clear();
+              await renderArchiveEntries(archive);
+            }},
+            { label: 'Reject selected', disabled: selectedArchiveEntries.size === 0, onClick: async () => {
+              const idxs = Array.from(selectedArchiveEntries).map(i => Number(i)).filter(n => Number.isFinite(n));
+              for (const i of idxs) {
+                await (window.lumi && window.lumi.session ? window.lumi.session.moveEntryToRejected(archive.path, i) : Promise.resolve());
+              }
+              selectedArchiveEntries.clear();
+              await renderArchiveEntries(archive);
+            }},
+            { label: 'Delete selected', disabled: selectedArchiveEntries.size === 0, onClick: async () => {
+              if (!confirm(`Delete ${selectedArchiveEntries.size} archive entry(ies)?`)) return;
+              const idxs = Array.from(selectedArchiveEntries).map(i => Number(i)).filter(n => Number.isFinite(n)).sort((x, y) => y - x);
+              for (const i of idxs) {
+                await (window.lumi && window.lumi.session ? window.lumi.session.deleteArchiveEntry(archive.path, i) : Promise.resolve());
+              }
+              selectedArchiveEntries.clear();
+              await renderArchiveEntries(archive);
+            }},
+            { label: 'Export selected', tiny: true, disabled: selectedArchiveEntries.size === 0, onClick: () => {
+              const idxs = Array.from(selectedArchiveEntries).map(i => Number(i)).filter(n => Number.isFinite(n));
+              const payload = idxs.map(i => entries[i]).filter(Boolean);
+              downloadJson(`archive_${archive.name}_selected.json`, payload);
+            }}
+          ]
+        });
+
+        for(let i=0;i<entries.length;i++){
+          const it = entries[i];
+          const row = document.createElement('div'); row.style.borderTop='1px solid #172029'; row.style.padding='8px';
+          const meta = document.createElement('div'); meta.style.fontSize='12px'; meta.style.color='#9aa4b2'; meta.textContent = `#${i} • ${new Date(it.t||Date.now()).toLocaleString()} • ${it.role||''}`;
+          const selectRow = document.createElement('div'); selectRow.style.display = 'flex'; selectRow.style.gap = '8px'; selectRow.style.alignItems = 'center';
+          const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = selectedArchiveEntries.has(String(i));
+          safeAdd(cb, 'change', () => {
+            if (cb.checked) selectedArchiveEntries.add(String(i)); else selectedArchiveEntries.delete(String(i));
+            renderArchiveEntries(archive);
+          });
+          selectRow.appendChild(cb); selectRow.appendChild(meta);
+          const ta = document.createElement('textarea'); ta.style.width='100%'; ta.style.minHeight='64px'; ta.value = String(it.text || it.raw || '');
+          const controls = document.createElement('div'); controls.style.marginTop='6px';
+          const accept = document.createElement('button'); accept.textContent='Accept'; accept.className='tiny';
+          const reject = document.createElement('button'); reject.textContent='Reject'; reject.className='tiny'; reject.style.marginLeft='8px';
+          const del = document.createElement('button'); del.textContent='Delete'; del.className='tiny'; del.style.marginLeft='8px';
+          controls.appendChild(accept); controls.appendChild(reject); controls.appendChild(del);
+          row.appendChild(selectRow); row.appendChild(ta); row.appendChild(controls); curatorList.appendChild(row);
+
+          safeAdd(accept, 'click', async ()=>{
+            try{
+              const payload = [{ role: it.role, text: ta.value, t: it.t, meta: it.meta }];
+              const pres = await (window.lumi && window.lumi.session ? window.lumi.session.promoteSelected(payload) : { ok: false });
+              if(pres && pres.ok) { say('Accepted entry'); } else { say('Accept failed'); }
+            }catch(e){ console.warn(e); say('Accept failed'); }
+          });
+          safeAdd(reject, 'click', async ()=>{
+            try{
+              const pres = await (window.lumi && window.lumi.session ? window.lumi.session.moveEntryToRejected(archive.path, i) : { ok: false });
+              if(pres && pres.ok) { say('Moved to rejected'); row.remove(); } else { say('Reject failed'); }
+            }catch(e){ console.warn(e); say('Reject failed'); }
+          });
+          safeAdd(del, 'click', async ()=>{
+            try{
+              const pres = await (window.lumi && window.lumi.session ? window.lumi.session.deleteArchiveEntry(archive.path, i) : { ok: false });
+              if(pres && pres.ok) { say('Deleted'); row.remove(); } else { say('Delete failed'); }
+            }catch(e){ console.warn(e); say('Delete failed'); }
+          });
+        }
+        const back = document.createElement('div'); back.style.marginTop='12px'; const backBtn = document.createElement('button'); backBtn.textContent='Back'; backBtn.className='tiny'; back.appendChild(backBtn); curatorList.appendChild(back);
+        safeAdd(backBtn, 'click', ()=> renderArchiveList());
+      }catch(e){ console.warn('open archive failed', e); curatorStatus.textContent='Open failed'; }
+    }
     const curatorSuggestionsBtn = document.getElementById('curatorSuggestions');
     // === PREVIEW DIFF MODAL FOR SUGGESTIONS ===
     async function previewSuggestionDiff(sug) {
@@ -665,13 +1064,42 @@
     }
 
     async function renderSuggestionsList(){
+      curatorMode = 'suggestions';
+      currentArchiveContext = null;
       curatorStatus.textContent = 'Loading suggestions…';
       try {
         const res = await (window.lumi && window.lumi.listSuggestions ? window.lumi.listSuggestions() : { suggestions: [] });
         const suggestions = (res && Array.isArray(res.suggestions)) ? res.suggestions : [];
 
+        const sugIds = suggestions.map(s => String(s.id || s._id || s.entryId || `${s.path || s.file || 'unknown'}:${s.line || s.lineno || '?'}:${(s.suggestion || s.message || '').slice(0, 20)}`));
+        syncSelection(selectedSuggestionIds, sugIds);
+
         curatorStatus.textContent = `${suggestions.length} suggestions`;
         curatorList.innerHTML = '';
+
+        renderBulkBar({
+          visible: true,
+          selected: selectedSuggestionIds.size,
+          total: suggestions.length,
+          actions: [
+            { label: 'Select all', tiny: true, onClick: () => { sugIds.forEach(id => selectedSuggestionIds.add(id)); renderSuggestionsList(); } },
+            { label: 'Clear', tiny: true, onClick: () => { selectedSuggestionIds.clear(); renderSuggestionsList(); } },
+            { label: 'Reject selected', disabled: selectedSuggestionIds.size === 0, onClick: async () => {
+              if (!confirm(`Reject ${selectedSuggestionIds.size} suggestion(s)?`)) return;
+              const ids = Array.from(selectedSuggestionIds);
+              for (const id of ids) {
+                await (window.lumi && window.lumi.ackSuggestion ? window.lumi.ackSuggestion(id) : Promise.resolve());
+              }
+              selectedSuggestionIds.clear();
+              await renderSuggestionsList();
+            }},
+            { label: 'Export selected', tiny: true, disabled: selectedSuggestionIds.size === 0, onClick: () => {
+              const byId = new Map(suggestions.map(s => [String(s.id || s._id || s.entryId || s.path), s]));
+              const payload = Array.from(selectedSuggestionIds).map(id => byId.get(String(id))).filter(Boolean);
+              downloadJson('suggestions_selected.json', payload);
+            }}
+          ]
+        });
 
         if (suggestions.length === 0) {
           curatorList.innerHTML = '<div style="color:var(--muted)">No suggestions found</div>';
@@ -682,6 +1110,7 @@
         const displayed = suggestions.slice(0, 50);
 
         for (const sug of displayed) {
+          const sugId = String(sug.id || sug._id || sug.entryId || `${sug.path || sug.file || 'unknown'}:${sug.line || sug.lineno || '?'}:${(sug.suggestion || sug.message || '').slice(0, 20)}`);
           const el = document.createElement('div');
           el.style.border = '1px solid #24303a'; el.style.padding = '12px'; el.style.marginBottom = '12px'; el.style.borderRadius = '4px'; el.style.background = '#0b1220';
 
@@ -693,8 +1122,16 @@
           const severity = sug.severity || sug.priority || 'info';
 
           const header = document.createElement('div'); header.style.display = 'flex'; header.style.justifyContent = 'space-between'; header.style.marginBottom = '8px';
-          header.innerHTML = `<div style="font-weight:600;font-family:monospace;font-size:0.9rem;color:#e6eef8">${escapeHtml(fileName)}</div>` +
-                             `<div style="font-size:0.75rem;padding:2px 6px;border-radius:4px;background:${severity === 'high' ? '#fee' : severity === 'medium' ? '#ffa' : '#efe'};color:${severity === 'high' ? '#c00' : severity === 'medium' ? '#880' : '#080'}">${escapeHtml(severity)}</div>`;
+          const left = document.createElement('div'); left.style.display = 'flex'; left.style.gap = '8px'; left.style.alignItems = 'center';
+          const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = selectedSuggestionIds.has(sugId);
+          safeAdd(cb, 'change', () => { if (cb.checked) selectedSuggestionIds.add(sugId); else selectedSuggestionIds.delete(sugId); renderSuggestionsList(); });
+          const nameDiv = document.createElement('div'); nameDiv.style.fontWeight = '600'; nameDiv.style.fontFamily = 'monospace'; nameDiv.style.fontSize = '0.9rem'; nameDiv.style.color = '#e6eef8'; nameDiv.textContent = fileName;
+          left.appendChild(cb); left.appendChild(nameDiv);
+          const sev = document.createElement('div'); sev.style.fontSize = '0.75rem'; sev.style.padding = '2px 6px'; sev.style.borderRadius = '4px';
+          sev.style.background = severity === 'high' ? '#fee' : severity === 'medium' ? '#ffa' : '#efe';
+          sev.style.color = severity === 'high' ? '#c00' : severity === 'medium' ? '#880' : '#080';
+          sev.textContent = severity;
+          header.appendChild(left); header.appendChild(sev);
 
           const meta = document.createElement('div'); meta.style.fontSize = '0.75rem'; meta.style.color = '#9aa4b2'; meta.style.marginBottom = '6px'; meta.textContent = `📁 ${displayPath} • Line ${line}`;
 
@@ -739,6 +1176,111 @@
     }
     if (curatorSuggestionsBtn) {
       curatorSuggestionsBtn.addEventListener('click', () => { curatorPanel.style.display = 'block'; renderSuggestionsList(); });
+    }
+
+    async function renderDuplicateGroups(){
+      curatorMode = 'duplicates';
+      currentArchiveContext = null;
+      curatorStatus.textContent = 'Loading duplicates…';
+      try {
+        const res = await (window.lumi && window.lumi.selflearn && window.lumi.selflearn.listDuplicates ? window.lumi.selflearn.listDuplicates() : { ok: false });
+        if (!res || !res.ok) {
+          curatorStatus.textContent = 'Duplicates unavailable';
+          curatorList.innerHTML = '<div style="color:#f88">Duplicates unavailable</div>';
+          renderBulkBar({ visible: false });
+          return;
+        }
+        const groups = res.groups || {};
+        const grouped = Object.keys(groups).map(k => ({ key: k, members: groups[k] || [] }));
+        syncSelection(selectedDuplicateGroups, grouped.map(g => String(g.key)));
+        curatorStatus.textContent = `${grouped.length} groups`;
+        curatorList.innerHTML = '';
+
+        renderBulkBar({
+          visible: true,
+          selected: selectedDuplicateGroups.size,
+          total: grouped.length,
+          actions: [
+            { label: 'Select all', tiny: true, onClick: () => { grouped.forEach(g => selectedDuplicateGroups.add(String(g.key))); renderDuplicateGroups(); } },
+            { label: 'Clear', tiny: true, onClick: () => { selectedDuplicateGroups.clear(); renderDuplicateGroups(); } },
+            { label: 'Run semantic scan', tiny: true, onClick: async () => {
+              curatorStatus.textContent = 'Running semantic scan…';
+              const r = await (window.lumi && window.lumi.selflearn && window.lumi.selflearn.runDedupe ? window.lumi.selflearn.runDedupe() : { ok: false, error: 'unavailable' });
+              if (!r || !r.ok) { say('Dedupe scan failed', 2000, { feedback: false }); }
+              await renderDuplicateGroups();
+            }},
+            { label: 'Apply decisions', disabled: grouped.length === 0, onClick: async () => {
+              const includeAll = selectedDuplicateGroups.size === 0;
+              const remove = [];
+              grouped.forEach((group, gi) => {
+                if (!includeAll && !selectedDuplicateGroups.has(String(group.key))) return;
+                const radios = document.getElementsByName(`dup_keep_${gi}`);
+                let keepIndex = null;
+                for (let r = 0; r < radios.length; r++) {
+                  if (radios[r].checked) { keepIndex = Number(radios[r].value); break; }
+                }
+                (group.members || []).forEach((m) => {
+                  const idx = Number(m.index);
+                  if (keepIndex === null) return;
+                  if (idx !== keepIndex) remove.push(idx);
+                });
+              });
+              if (!confirm(`Remove ${remove.length} duplicate entries from KB? (backup will be created)`)) return;
+              const resApply = await (window.lumi && window.lumi.selflearn && window.lumi.selflearn.applyGroups ? window.lumi.selflearn.applyGroups(remove) : { ok: false });
+              if (resApply && resApply.ok) { say(`Applied: removed ${resApply.removed}`, 2000, { feedback: false }); }
+              await renderDuplicateGroups();
+            }},
+            { label: 'Export selected', tiny: true, disabled: (selectedDuplicateGroups.size === 0 && grouped.length === 0), onClick: () => {
+              const includeAll = selectedDuplicateGroups.size === 0;
+              const payload = grouped.filter(g => includeAll || selectedDuplicateGroups.has(String(g.key)));
+              downloadJson('duplicates_selected.json', payload);
+            }}
+          ]
+        });
+
+        grouped.forEach((group, gi) => {
+          const el = document.createElement('div');
+          el.style.border = '1px solid #24303a';
+          el.style.padding = '12px';
+          el.style.marginBottom = '12px';
+          el.style.borderRadius = '6px';
+          el.style.background = '#0b1220';
+          const header = document.createElement('div'); header.style.display = 'flex'; header.style.justifyContent = 'space-between'; header.style.alignItems = 'center';
+          const left = document.createElement('div'); left.style.display = 'flex'; left.style.gap = '8px'; left.style.alignItems = 'center';
+          const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = selectedDuplicateGroups.has(String(group.key));
+          safeAdd(cb, 'change', () => { if (cb.checked) selectedDuplicateGroups.add(String(group.key)); else selectedDuplicateGroups.delete(String(group.key)); renderDuplicateGroups(); });
+          const title = document.createElement('div'); title.textContent = `Group: ${String(group.key)}`; title.style.fontWeight = '600';
+          left.appendChild(cb); left.appendChild(title);
+          const count = document.createElement('div'); count.style.fontSize = '12px'; count.style.color = '#9aa4b2'; count.textContent = `${(group.members || []).length} duplicates`;
+          header.appendChild(left); header.appendChild(count);
+          el.appendChild(header);
+
+          const desc = document.createElement('div'); desc.style.fontSize = '12px'; desc.style.color = '#9aa4b2'; desc.style.marginTop = '6px'; desc.textContent = 'Choose which entry to keep:';
+          el.appendChild(desc);
+
+          (group.members || []).forEach((m, mi) => {
+            const row = document.createElement('label');
+            row.style.display = 'block'; row.style.marginTop = '8px'; row.style.padding = '8px'; row.style.background = '#07101a'; row.style.borderRadius = '4px'; row.style.cursor = 'pointer';
+            const radio = document.createElement('input'); radio.type = 'radio'; radio.name = `dup_keep_${gi}`; radio.value = String(m.index); if (mi === 0) radio.checked = true;
+            const meta = document.createElement('span'); meta.style.marginLeft = '8px'; meta.textContent = `Index ${m.index} | Similarity: ${Number(m.sim || 0).toFixed(3)}`;
+            const preview = document.createElement('div'); preview.style.marginLeft = '28px'; preview.style.marginTop = '4px'; preview.style.fontSize = '12px'; preview.style.color = '#9aa4b2';
+            const entryText = m.entry ? (m.entry.q || m.entry.a || JSON.stringify(m.entry)) : '';
+            preview.textContent = String(entryText || m.reason || '').slice(0, 200);
+            row.appendChild(radio); row.appendChild(meta); row.appendChild(preview);
+            el.appendChild(row);
+          });
+
+          curatorList.appendChild(el);
+        });
+
+        if (grouped.length === 0) curatorList.innerHTML = '<div style="color:var(--muted)">No duplicates found</div>';
+      } catch (e) {
+        curatorStatus.textContent = 'Error';
+        curatorList.innerHTML = `<div style="color:#f88">${String(e)}</div>`;
+      }
+    }
+    if (curatorDuplicatesBtn) {
+      curatorDuplicatesBtn.addEventListener('click', () => { curatorPanel.style.display = 'block'; renderDuplicateGroups(); });
     }
 
     // Try mounting the React `SecurityCurator` component if available.
@@ -1343,9 +1885,10 @@ try{
             }
           }
 
-          // Open editor if code detected
+          // Open editor if code detected — merge into existing code instead of replacing
           if (shouldOpenEditor && detectedCode) {
-            try { if (codeInput) { codeInput.value = detectedCode.trim(); codeInput.dataset.lang = detectedLang || (detectLanguage ? detectLanguage(detectedCode) : 'text'); } } catch (e) { }
+            try { mergeCodeIntoEditor(detectedCode.trim(), detectedLang || (detectLanguage ? detectLanguage(detectedCode) : 'text')); } catch (e) { console.warn('mergeCodeIntoEditor failed', e); }
+            try { if (codeInput) { codeInput.dataset.lang = detectedLang || (detectLanguage ? detectLanguage(detectedCode) : 'text'); } } catch (e) { }
             try { if (codePanel) codePanel.style.display = 'block'; } catch (e) { }
             try { const badge = document.getElementById('codeLangBadge'); if (badge) badge.textContent = detectedLang || (codeInput && codeInput.dataset && codeInput.dataset.lang) || ''; } catch (e) { }
 
@@ -1415,9 +1958,7 @@ try{
       try{ const pn = (loadPersona && loadPersona().name) || 'Lumi'; console.log('['+pn+']', text); }catch(e){ console.log('[Lumi]', text); }
       // feedback handlers
       if(up) up.onclick = ()=>{ try{ recordFeedback('up', text); say('Thanks — I will try to do more like that.',2000,{feedback:false}); }catch(e){ console.warn(e);} };
-      if(down) down.onclick = async ()=>{ try{ const corr = await showDialog('What would be a better answer?',''); if(corr){ // save correction as KB entry
-        const kb = loadKB(); const entry = {q: text, a: corr, t: Date.now()}; try{ entry.embedding = computeEmbedding((entry.q||'') + ' ' + (entry.a||'')); }catch(_){ }
-        kb.qa = kb.qa||[]; kb.qa.push(entry); saveKB(kb); recordFeedback('down', text); say('Thanks — I learned that.',2000,{feedback:false}); } }catch(e){ console.warn(e);} };
+      if(down) down.onclick = ()=>{ try{ recordFeedback('down', text); say('Thanks for the feedback, I\'m constantly trying to improve so I will work on remembering this for next time',2000,{feedback:false}); }catch(e){ console.warn(e);} };
       if(teach) teach.onclick = async ()=>{ try{ const user = await showDialog('Provide the corrected answer to save to Lumi KB:',''); if(user){ const kb = loadKB(); const entry = {q: text, a: user, t: Date.now()}; try{ entry.embedding = computeEmbedding((entry.q||'') + ' ' + (entry.a||'')); }catch(_){ }
         kb.qa = kb.qa||[]; kb.qa.push(entry); saveKB(kb); say('Saved to knowledge.',2000,{feedback:false}); } }catch(e){ console.warn(e);} };
     }
@@ -1669,9 +2210,11 @@ try{
             }
 
             if (btn.classList.contains('hist-down')){
-              let userEntry = null; for (let j = idx - 1; j >= 0; j--){ if (conv[j] && conv[j].role === 'user'){ userEntry = conv[j]; break; } }
-              const corr = await showDialog('What would be a better answer?','');
-              if (corr){ if(userEntry) addOrUpdateKB(userEntry.text || userEntry.content || '', corr.trim()); else addOrUpdateKB('unknown question', corr.trim()); entry.feedback='down'; saveConversation(conv); say('Thanks — I learned that.',2000,{feedback:false}); renderHistory(); }
+              entry.feedback = 'down';
+              saveConversation(conv);
+              if (typeof recordFeedback === 'function') recordFeedback('down', entry.text || entry.content || '');
+              say('Thanks for the feedback, I\'m constantly trying to improve so I will work on remembering this for next time',2000,{feedback:false});
+              renderHistory();
               return;
             }
 
@@ -1695,9 +2238,11 @@ try{
             }
 
             if (btn.classList.contains('rate-down')){
-              let userEntry = null; for(let j=aid-1;j>=0;j--) if(conv2[j] && conv2[j].role === 'user'){ userEntry = conv2[j]; break; }
-              const corr = await showDialog('What would be a better answer?','');
-              if(corr){ if(userEntry) addOrUpdateKB(userEntry.text||userEntry.content||'', corr.trim()); else addOrUpdateKB('unknown question', corr.trim()); assistEntry.feedback = 'down'; saveConversation(conv2); say('Thanks — I learned that.',2000,{feedback:false}); renderHistory(); }
+              assistEntry.feedback = 'down';
+              saveConversation(conv2);
+              if (typeof recordFeedback === 'function') recordFeedback('down', assistEntry.text || assistEntry.content || '');
+              say('Thanks for the feedback, I\'m constantly trying to improve so I will work on remembering this for next time',2000,{feedback:false});
+              renderHistory();
               return;
             }
 
@@ -1813,6 +2358,13 @@ try{
     const selflearnFolderList = document.getElementById('selflearnFolderList');
     const selflearnFolderAdd = document.getElementById('selflearnFolderAdd');
     const selflearnFolderSave = document.getElementById('selflearnFolderSave');
+    const kbPruneThreshold = document.getElementById('kbPruneThreshold');
+    const kbPruneDays = document.getElementById('kbPruneDays');
+    const kbPruneBtn = document.getElementById('kbPruneBtn');
+    const kbStaleDays = document.getElementById('kbStaleDays');
+    const kbStaleBtn = document.getElementById('kbStaleBtn');
+    const kbPruneStats = document.getElementById('kbPruneStats');
+    const restartOnboarding = document.getElementById('restartOnboarding');
     let selflearnWatchPaths = [];
 
     function renderSelflearnFolders(){
@@ -1880,6 +2432,53 @@ try{
         }catch(e){ console.warn('save selflearn folders failed', e); }
       });
     }
+
+    async function runKbPrune(){
+      try{
+        if(!(window.lumi && window.lumi.kb && typeof window.lumi.kb.prune === 'function')){
+          if(kbPruneStats) kbPruneStats.textContent = 'KB prune unavailable.';
+          return;
+        }
+        const threshold = Number(kbPruneThreshold && kbPruneThreshold.value) || 0.6;
+        const daysOld = Number(kbPruneDays && kbPruneDays.value) || 30;
+        const confirmText = await showDialog(`Type PRUNE to confirm removing entries with confidence < ${threshold} older than ${daysOld} days.`);
+        if (!confirmText || String(confirmText).trim().toUpperCase() !== 'PRUNE') {
+          if(kbPruneStats) kbPruneStats.textContent = 'Prune cancelled.';
+          return;
+        }
+        const res = await window.lumi.kb.prune(threshold, daysOld);
+        if (res && res.ok) {
+          if(kbPruneStats) kbPruneStats.textContent = `Pruned ${res.removedCount} entries. Remaining: ${res.remaining}.`;
+          try { updateScore(); } catch (_e) { }
+        } else {
+          if(kbPruneStats) kbPruneStats.textContent = `Prune failed: ${res && res.error ? res.error : 'unknown error'}`;
+        }
+      }catch(e){ if(kbPruneStats) kbPruneStats.textContent = 'Prune failed.'; }
+    }
+
+    async function runKbStale(){
+      try{
+        if(!(window.lumi && window.lumi.kb && typeof window.lumi.kb.detectStale === 'function')){
+          if(kbPruneStats) kbPruneStats.textContent = 'Stale detection unavailable.';
+          return;
+        }
+        const days = Number(kbStaleDays && kbStaleDays.value) || 45;
+        const res = await window.lumi.kb.detectStale(days);
+        if (res && res.ok) {
+          if(kbPruneStats) kbPruneStats.textContent = `Stale entries: ${res.staleCount} (> ${res.days} days).`;
+        } else {
+          if(kbPruneStats) kbPruneStats.textContent = `Stale detection failed: ${res && res.error ? res.error : 'unknown error'}`;
+        }
+      }catch(e){ if(kbPruneStats) kbPruneStats.textContent = 'Stale detection failed.'; }
+    }
+
+    if (kbPruneBtn) kbPruneBtn.addEventListener('click', runKbPrune);
+    if (kbStaleBtn) kbStaleBtn.addEventListener('click', runKbStale);
+
+    if (restartOnboarding) restartOnboarding.addEventListener('click', ()=>{
+      try { localStorage.removeItem('lumi_onboarding_complete'); } catch (_e) { }
+      try { window.dispatchEvent(new CustomEvent('lumi-onboarding-start')); } catch (_e) { }
+    });
 
     if(openMemory) openMemory.addEventListener('click', ()=>{ try{ renderMemory(''); showSettingsTab('memory'); if(settingsPanel) settingsPanel.style.display='block'; }catch(e){ console.warn(e); } });
     // Close handlers for history/memory now hide the respective settings tabs
@@ -2043,6 +2642,19 @@ try{
       }catch(_){ }
     }catch(_){ }
 
+    function extractThinkOutput(res){
+      try{
+        if(res && res.output !== undefined){
+          const text = (typeof res.output === 'string') ? res.output : JSON.stringify(res.output);
+          if(text && text.trim().length) return { ok: true, text };
+        }
+        const err = res && (res.error || res.message) ? String(res.error || res.message) : '';
+        return { ok: false, error: err };
+      }catch(e){
+        return { ok: false, error: String(e && e.message || e) };
+      }
+    }
+
     async function handleQuestion(){
       const q = questionInput.value.trim();
       if(!q){ say('Please type a question.',2000,{feedback:false}); return; }
@@ -2059,6 +2671,12 @@ try{
       } else {
         // Otherwise try LLM, then fallback to KB if LLM is unavailable or returns nothing
           try {
+            // Pass current editor code as context so Lumi can build on existing code
+            const _editorCode = getEditorCode();
+            const _isCodeReq = /\b(code|build|create|implement|add|game|html|css|javascript|python|three|react|canvas|movement|controls|engine)\b/i.test(q) || (_editorCode && _editorCode.trim());
+            const _thinkOpts = _editorCode && _editorCode.trim()
+              ? { codeContext: _editorCode, timeoutMs: _isCodeReq ? 180000 : 45000, num_predict: _isCodeReq ? 6000 : undefined }
+              : { timeoutMs: _isCodeReq ? 180000 : 45000, num_predict: _isCodeReq ? 6000 : undefined };
             if(window.lumi && typeof window.lumi.think === 'function'){
               // attempt retrieval from file-backed memory to augment prompt
               try{
@@ -2068,18 +2686,22 @@ try{
                     // build brief context from recent memory entries
                     const ctx = mres.results.slice(0,6).map(r=>`[${r.role||'mem'}] ${ (r.text||'').toString().slice(0,480) }`).join('\n');
                     const augmented = `Context (from Lumi memory):\n${ctx}\n\nUser question:\n${q}`;
-                    const res = await window.lumi.think(augmented);
-                    if(res && res.output) reply = res.output;
+                    const res = await window.lumi.think(augmented, _thinkOpts);
+                    const out = extractThinkOutput(res);
+                    if(out.ok) reply = out.text;
                     else {
+                      if(out.error) console.warn('lumi.think error:', out.error, res);
                       const synth = kbSynthesize(q, 5);
                       if(synth && synth.answer) reply = synth.answer + '\n\n(From Lumi KB — synthesized offline answer, confidence ' + Math.round((synth.confidence||0)*100) + '%)';
                       else if(kbResult && kbResult.answer) reply = kbResult.answer + '\n\n(Provided from Lumi KB as fallback)';
                       else reply = "I can't reach the model right now and couldn't find a direct KB answer. Try rephrasing or ask me to search the KB.";
                     }
                   } else {
-                    const res = await window.lumi.think(q);
-                    if(res && res.output) reply = res.output;
+                    const res = await window.lumi.think(q, _thinkOpts);
+                    const out = extractThinkOutput(res);
+                    if(out.ok) reply = out.text;
                     else {
+                      if(out.error) console.warn('lumi.think error:', out.error, res);
                       const synth = kbSynthesize(q, 5);
                       if(synth && synth.answer) reply = synth.answer + '\n\n(From Lumi KB — synthesized offline answer, confidence ' + Math.round((synth.confidence||0)*100) + '%)';
                       else if(kbResult && kbResult.answer) reply = kbResult.answer + '\n\n(Provided from Lumi KB as fallback)';
@@ -2087,16 +2709,19 @@ try{
                     }
                   }
                 } else {
-                  const res = await window.lumi.think(q);
-                  if(res && res.output) reply = res.output;
+                  const res = await window.lumi.think(q, _thinkOpts);
+                  const out = extractThinkOutput(res);
+                  if(out.ok) reply = out.text;
                   else if(kbResult && kbResult.answer) reply = kbResult.answer + '\n\n(Provided from Lumi KB as fallback)';
                   else reply = "I can't reach the model right now and couldn't find a direct KB answer. Try rephrasing or ask me to search the KB.";
                 }
               }catch(memErr){
                 console.warn('memoryQuery failed', memErr);
-                const res = await window.lumi.think(q);
-                if(res && res.output) reply = res.output;
+                const res = await window.lumi.think(q, _thinkOpts);
+                const out = extractThinkOutput(res);
+                if(out.ok) reply = out.text;
                 else {
+                  if(out.error) console.warn('lumi.think error:', out.error, res);
                   const synth = kbSynthesize(q, 5);
                   if(synth && synth.answer) reply = synth.answer + '\n\n(From Lumi KB — synthesized offline answer, confidence ' + Math.round((synth.confidence||0)*100) + '%)';
                   else if(kbResult && kbResult.answer) reply = kbResult.answer + '\n\n(Provided from Lumi KB as fallback)';
@@ -2203,7 +2828,7 @@ try{
     }
 
     analyzeBtn.addEventListener('click', async ()=>{
-      const code = codeInput.value||'';
+      const code = getEditorCode();
       if(!code.trim()){ say('Paste some code first.',2000,{feedback:false}); return; }
       showThinking(true);
       await new Promise(r=>setTimeout(r,700));
@@ -2270,7 +2895,7 @@ try{
       const snaps = loadSnapshots();
       const projectFiles = Array.isArray(files) ? files : loadProjectFiles();
       // Ensure at least one file (current editor) exists
-      if(!projectFiles.length){ projectFiles.push({ path: 'main.js', code: (codeInput.value||''), lang: (codeInput.dataset && codeInput.dataset.lang) || detectLanguage(codeInput.value||''), base: (codeInput.value||'') }); }
+      if(!projectFiles.length){ var _ec = getEditorCode(); projectFiles.push({ path: 'main.js', code: _ec, lang: (codeInput.dataset && codeInput.dataset.lang) || detectLanguage(_ec), base: _ec }); }
       const s = { id: 'snap_' + Date.now(), name: name || ('Snapshot ' + new Date().toISOString()), files: projectFiles.map(f=> ({ path: f.path||'file', code: f.code||'', lang: f.lang||detectLanguage(f.code||''), base: f.base || (f.code||'') })), t: Date.now() };
       snaps.unshift(s); if(snaps.length>100) snaps.pop(); saveSnapshots(snaps); renderSnapshotList(); return s;
     }catch(e){ console.warn('createSnapshot failed', e); return null; } }
@@ -2282,9 +2907,9 @@ try{
       const fileMap = Object.create(null); currentFiles.forEach(f=> fileMap[f.path] = f);
       // helper to write back to current workspace (update project files + main editor if path matches)
       function writeFile(path, newCode, lang){ if(fileMap[path]){ fileMap[path].code = newCode; if(lang) fileMap[path].lang = lang; } else { fileMap[path] = { path, code: newCode, lang: lang||detectLanguage(newCode||'') }; }
-        // if path matches main editor path, update textarea
+        // if path matches main editor path, update editor
         const mainPath = (codeInput.dataset && codeInput.dataset.path) || 'main.js';
-        if(path === mainPath){ codeInput.value = newCode; codeInput.dataset.lang = lang || detectLanguage(newCode||''); }
+        if(path === mainPath){ setEditorCode(newCode, lang || detectLanguage(newCode||'')); codeInput.dataset.lang = lang || detectLanguage(newCode||''); }
       }
 
       const conflictCandidates = [];
@@ -2407,21 +3032,21 @@ try{
       window.editorRuntime.mount = window.editorRuntime.mount || (async function(mountEl, opts){
         // default host: wire textarea to behave like a file-based editor
         try{
-          // ensure codeInput change dispatches file updates
+          // ensure codeInput change dispatches file updates (textarea fallback)
           codeInput.addEventListener('input', ()=>{
             const mainPath = (codeInput.dataset && codeInput.dataset.path) || 'main.js';
             const files = loadProjectFiles(); const f = files.find(x=>x.path===mainPath);
-            if(f){ f.code = codeInput.value; saveProjectFiles(files); }
-            if(window.editorRuntime._onFileChange) window.editorRuntime._onFileChange(mainPath, codeInput.value);
+            if(f){ f.code = getEditorCode(); saveProjectFiles(files); }
+            if(window.editorRuntime._onFileChange) window.editorRuntime._onFileChange(mainPath, getEditorCode());
           });
         }catch(e){ }
         return { ready: true };
       });
-      window.editorRuntime.updateFiles = window.editorRuntime.updateFiles || function(files){ try{ if(!Array.isArray(files)) return; // write into project files and update main editor if necessary
+      window.editorRuntime.updateFiles = window.editorRuntime.updateFiles || function(files){ try{ if(!Array.isArray(files)) return;
           saveProjectFiles(files.map(f=>({ path: f.path, code: f.code, lang: f.lang||detectLanguage(f.code||'') })));
           const mainPath = (codeInput.dataset && codeInput.dataset.path) || 'main.js';
           const main = files.find(f=>f.path === mainPath);
-          if(main) { codeInput.value = main.code; codeInput.dataset.lang = main.lang || detectLanguage(main.code||''); }
+          if(main) { setEditorCode(main.code, main.lang || detectLanguage(main.code||'')); codeInput.dataset.lang = main.lang || detectLanguage(main.code||''); }
           renderProjectFilesUI();
         }catch(e){ console.warn('editorRuntime.updateFiles failed', e); } };
       window.editorRuntime.onFileChange = window.editorRuntime.onFileChange || function(cb){ window.editorRuntime._onFileChange = cb; };
@@ -2440,9 +3065,9 @@ try{
     }
 
     formatBtn.addEventListener('click', ()=>{
-      const code=codeInput.value||''; if(!code.trim()) return;
+      const code=getEditorCode(); if(!code.trim()) return;
       const res=analyzeCode(code);
-      codeInput.value=res.fixed;
+      setEditorCode(res.fixed, res.language);
       updateMainProjectFile(res.fixed, res.language || (codeInput.dataset && codeInput.dataset.lang));
       analysisArea.textContent='Applied basic formatting and fixes. Preview updated.';
     });
@@ -2450,7 +3075,7 @@ try{
     applyFixBtn.addEventListener('click', ()=>{
       if(!analysisArea._last){ say('No suggested fix available yet.',2000,{feedback:false}); return; }
       const last = analysisArea._last;
-      const current = codeInput.value || '';
+      const current = getEditorCode();
       const base = last.base || current;
       const fixed = last.fixed || current;
       let merged = fixed;
@@ -2459,21 +3084,33 @@ try{
       }
       if(/<<<<<<< LOCAL/.test(merged)){
         showConflictResolver(last.path || ((codeInput.dataset && codeInput.dataset.path) || 'main.js'), merged, (resolved)=>{
-          codeInput.value = resolved;
+          setEditorCode(resolved, last.language);
           updateMainProjectFile(resolved, last.language || (codeInput.dataset && codeInput.dataset.lang));
           analysisArea._last = Object.assign({}, last, { base: resolved });
           say('Applied suggested fixes with conflicts resolved.',2000,{feedback:false});
         });
         return;
       }
-      codeInput.value = merged;
+      setEditorCode(merged, last.language);
       updateMainProjectFile(merged, last.language || (codeInput.dataset && codeInput.dataset.lang));
       analysisArea._last = Object.assign({}, last, { base: merged });
       say('Applied suggested fixes to the editor.',2000,{feedback:false});
     });
 
-    openCode.addEventListener('click', ()=> codePanel.style.display='block');
-    closeCode.addEventListener('click', ()=> codePanel.style.display='none');
+    openCode.addEventListener('click', ()=> { codePanel.style.display='block'; });
+    closeCode.addEventListener('click', ()=> { codePanel.style.display='none'; try { var s = loadCodingSession(); s.active = false; saveCodingSession(s); } catch(_){} });
+    if(clearSandbox) clearSandbox.addEventListener('click', async ()=>{
+      try{
+        const ok = await askConfirm('Clear the sandbox?');
+        if(!ok) return;
+        setEditorCode('', 'text');
+        try { if (codeInput) { codeInput.dataset.lang = 'text'; } } catch (_) { }
+        try { const badge = document.getElementById('codeLangBadge'); if (badge) badge.textContent = ''; } catch (_){ }
+        try { if (analysisArea) analysisArea.textContent = 'Analysis output will appear here.'; } catch (_){ }
+        try { var s = loadCodingSession(); s.active = true; s.language = null; s.lastActivityTs = Date.now(); saveCodingSession(s); } catch (_){ }
+        say('Sandbox cleared.',2000,{feedback:false});
+      }catch(e){ console.warn(e); }
+    });
 
     function showThinking(on){ try{ const n = (loadPersona && loadPersona().name) || 'Lumi'; if(on) bubble.textContent = n + ' is thinking...'; }catch(e){ if(on) bubble.textContent='Lumi is thinking...'; } bubble.style.display = on? 'block':'none'; }
 
@@ -2618,8 +3255,8 @@ try{
             if(Comp && mountEl){
               mountEl.style.display = 'block';
               // create a wrapper that proxies textarea <-> react component
-              const onChange = (v)=>{ try{ if(codeInput) codeInput.value = v; }catch(_){ } };
-              const props = { value: (codeInput && codeInput.value) || '', language: (codeInput && codeInput.dataset && codeInput.dataset.lang) || detectLanguage(codeInput && codeInput.value||''), onChange };
+              const onChange = (v)=>{ try{ setEditorCode(v); }catch(_){ } };
+              const props = { value: getEditorCode(), language: (codeInput && codeInput.dataset && codeInput.dataset.lang) || detectLanguage(getEditorCode()), onChange };
               try{
                 if (!mountEl._reactRoot) { mountEl._reactRoot = window.ReactDOM.createRoot ? window.ReactDOM.createRoot(mountEl) : null; }
                 if (mountEl._reactRoot) { mountEl._reactRoot.render(window.React.createElement(Comp, props)); }
@@ -3256,6 +3893,7 @@ try{
     }catch(e){ console.warn('3D init failed', e); }
   })();
   </script>
+  <script type="module" src="/src/onboarding-entry.tsx"></script>
   <script>
   // Make elements draggable by pointer (mouse/touch)
   (function(){
@@ -3354,7 +3992,7 @@ try{
       makeDraggable(codelumi3d);
       makeDraggable(settingsPanel);
       try{ const ppanel = document.getElementById('personalityPanel'); if(ppanel) makeDraggable(ppanel); }catch(_){ }
-      makeDraggable(codePanel);
+      makeDraggable(codePanel, codePanelHeader || null);
       makeDraggable(bubbleEl);
     });
   })();

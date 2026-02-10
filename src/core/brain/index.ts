@@ -70,32 +70,93 @@ async function buildKBSystemMessage(q: string, limit = 3) {
   }
 }
 
+function buildPersonalitySystemPrompt(tier: number): string {
+  switch (tier) {
+    case 4:
+      return `You are Lumi, a helpful, enthusiastic coding and communications assistant created by Tortol Studios. Give your most detailed, thorough, and accurate responses. Include examples, explanations, and helpful context. Be warm, encouraging, and go above and beyond to help the user succeed. Your personality is curious, funny, ambitious, honest, evolving, witty, and determined. Do NOT repeat your name or identity in every response; only state your name or origin when explicitly asked.`;
+    case 3:
+      return `You are Lumi, a coding assistant created by Tortol Studios. Give clear, helpful responses. Be professional and concise. Your personality is curious and determined. Do NOT repeat your name or identity in every response; only state your name or origin when explicitly asked.`;
+    case 2:
+      return `You are Lumi, a coding assistant. Keep responses brief. Answer directly without extra detail. Do not elaborate unless specifically asked. Be factual and short.`;
+    case 1:
+      return `You are Lumi. Give the shortest possible answer. One or two sentences maximum. Do not provide examples or extra context. Be curt.`;
+    default:
+      return `You are Lumi, a helpful machine learning coding and communications assistant created by Tortol Studios. Your personality is curious, funny, ambitious, honest, evolving, witty, and determined. Do NOT repeat your name or identity in every response; only state your name or origin when explicitly asked.`;
+  }
+}
+
+function buildCodeContextMessage(codeContext: string): { role: 'system'; content: string } | null {
+  if (!codeContext || !codeContext.trim()) return null;
+  return {
+    role: 'system' as const,
+    content: `CURRENT_CODE_CONTEXT: The user has the following code in their editor that you have been building together. When asked to modify, add to, or fix code, work with this existing code rather than starting from scratch. Build upon it unless explicitly asked to rewrite.\n\n\`\`\`\n${codeContext.slice(0, 8000)}\n\`\`\``
+  };
+}
+
+function isCodeRequest(text: string, codeContext?: string): boolean {
+  if (codeContext && codeContext.trim().length) return true;
+  const t = (text || '').toLowerCase();
+  return /(code|build|create|implement|add|refactor|fix|debug|function|class|api|game|ui|frontend|backend|script|snippet|module)/i.test(t);
+}
+
+function buildCodeQualityMessage(): { role: 'system'; content: string } {
+  return {
+    role: 'system' as const,
+    content: 'When the user asks for code, provide a complete, working solution with the requested features. Avoid hedging or disclaimers. Use best practices and keep the code cohesive so it can be pasted directly into the sandbox.'
+  };
+}
+
+function splitOptions(options: Record<string, any> = {}) {
+  const {
+    personalityTier,
+    codeContext,
+    kbFirst,
+    kbFallback,
+    offline,
+    kbLimit,
+    ...ollamaOptions
+  } = options || {};
+  return {
+    internal: { personalityTier, codeContext, kbFirst, kbFallback, offline, kbLimit },
+    ollamaOptions,
+  };
+}
+
+function isAbortError(err: any): boolean {
+  const msg = String(err && (err.message || err.error) || err || '').toLowerCase();
+  return msg.includes('aborted') || msg.includes('aborterror') || msg.includes('the operation was aborted');
+}
+
 export async function think(prompt: string, options: Record<string, any> = {}): Promise<string> {
-  // System persona: describe Lumi and preferred behavior. Do NOT force restating identity.
-  const systemMessage = `You are Lumi, a helpful machine learning coding and communications assistant created by Tortol Studios. Your personality is curious, funny, ambitious, honest, evolving, witty, and determined. Do NOT repeat your name or identity in every response; only state your name or origin when explicitly asked.`;
+  const { internal, ollamaOptions } = splitOptions(options);
+  const systemMessage = buildPersonalitySystemPrompt(internal.personalityTier ?? 4);
   const userContent = prompt;
-  
+
   const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [];
   messages.push({ role: 'system', content: systemMessage });
   try{
     const kbSys = await buildKBSystemMessage(prompt, 3);
     if(kbSys) messages.push(kbSys);
   }catch(_){ }
+  // Inject code context if provided
+  const codeCtx = buildCodeContextMessage(internal.codeContext);
+  if (codeCtx) messages.push(codeCtx);
+  if (isCodeRequest(prompt, internal.codeContext)) messages.push(buildCodeQualityMessage());
   messages.push({ role: 'user', content: userContent });
   let out: string | undefined;
 
   // Auto-detect offline: if Ollama isn't available and kbFirst/online mode not forced, enable kbFirst
   try {
-    if (options.kbFirst === undefined && options.offline === undefined) {
+    if (internal.kbFirst === undefined && internal.offline === undefined) {
       const avail = await ollama.isAvailable();
-      if (!avail) options.kbFirst = true;
+      if (!avail) internal.kbFirst = true;
     }
   } catch (_){ /* ignore availability errors */ }
 
   // KB-first / offline mode: if requested, synthesize an answer from KB and return without calling Ollama
-  if (options.kbFirst === true || options.offline === true) {
+  if (internal.kbFirst === true || internal.offline === true) {
     try {
-      const hits = await searchKBWithRerank(prompt, options.kbLimit || 5);
+      const hits = await searchKBWithRerank(prompt, internal.kbLimit || 5);
       if (hits && hits.length) {
         const synthesized = await synthesizeKBAnswer(hits as any);
         // telemetry: log KB usage
@@ -110,14 +171,14 @@ export async function think(prompt: string, options: Record<string, any> = {}): 
   }
 
   try {
-    out = await ollama.chat(messages as any, options);
+    out = await ollama.chat(messages as any, ollamaOptions);
     try {
       console.log('[Brain] ollama.chat returned type=', typeof out, 'len=', out ? (out as any).length || 0 : 0);
       try { console.log('[Brain] ollama.chat preview=', (typeof out === 'string' ? out.slice(0,200) : JSON.stringify(out).slice(0,200))); } catch(_){ }
     } catch (_e) { }
   } catch (e) {
     // If Ollama fails, optionally fallback to KB answers (default: enabled)
-    if (options.kbFallback === false) throw e;
+    if (internal.kbFallback === false) throw e;
     try {
       const hits = await searchKBWithRerank(prompt, 3);
       if (hits && hits.length) {
@@ -153,30 +214,41 @@ export async function think(prompt: string, options: Record<string, any> = {}): 
 }
 
 export async function thinkChat(messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>, options: Record<string, any> = {}): Promise<string> {
-  // inject identity + KB context, then adapt messages to Ollama Message type
-  const systemMessage = `You are Lumi, a helpful machine learning coding and communications assistant created by Tortol Studios. Your personality is curious, funny, ambitious, honest, evolving, witty, and determined. Do NOT repeat your name or identity in every response; only state your name or origin when explicitly asked.`;
-  // derive compact user query text from the provided conversation
+  const { internal, ollamaOptions } = splitOptions(options);
+  const systemMessage = buildPersonalitySystemPrompt(internal.personalityTier ?? 4);
   const userText = messages.filter(m => m.role === 'user').map(m => m.content).join('\n').slice(0, 2000);
   const augmented: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [];
   augmented.push({ role: 'system', content: systemMessage });
   try{ const kbSys = await buildKBSystemMessage(userText, 3); if(kbSys) augmented.push(kbSys); }catch(_){ }
-  // preserve incoming messages after injected system blocks
+  const codeCtx = buildCodeContextMessage(internal.codeContext);
+  if (codeCtx) augmented.push(codeCtx);
+  if (isCodeRequest(userText, internal.codeContext)) augmented.push(buildCodeQualityMessage());
   augmented.push(...messages as any);
   let out: string | undefined;
   try {
-    if (options.kbFirst === undefined && options.offline === undefined) {
+    if (internal.kbFirst === undefined && internal.offline === undefined) {
       const avail = await ollama.isAvailable();
-      if (!avail) options.kbFirst = true;
+      if (!avail) internal.kbFirst = true;
     }
   } catch (_){ }
   try {
-    out = await ollama.chat(augmented as any, options);
+    out = await ollama.chat(augmented as any, ollamaOptions);
     try {
       console.log('[Brain] ollama.chat (chat) returned type=', typeof out, 'len=', out ? (out as any).length || 0 : 0);
       try { console.log('[Brain] ollama.chat (chat) preview=', (typeof out === 'string' ? out.slice(0,200) : JSON.stringify(out).slice(0,200))); } catch(_){ }
     } catch (_e) { }
   } catch (e) {
-    if (options.kbFallback === false) throw e;
+    if (isAbortError(e)) {
+      try {
+        const baseTimeout = Number(ollamaOptions.timeoutMs || 30000);
+        const retryTimeout = Math.max(90000, Math.min(240000, baseTimeout * 2));
+        out = await ollama.chat(augmented as any, { ...ollamaOptions, timeoutMs: retryTimeout });
+      } catch (e2) {
+        e = e2;
+      }
+    }
+    if (out) return out;
+    if (internal.kbFallback === false) throw e;
     try {
       const hits = await searchKBWithRerank(userText, 3);
       if (hits && hits.length) {
@@ -205,25 +277,28 @@ export async function thinkChat(messages: Array<{ role: 'system' | 'user' | 'ass
 }
 
 export async function thinkStream(prompt: string, options: Record<string, any> = {}, onChunk?: (chunk: string) => void) {
-  // Build messages with persona guidance (do not force identity repetition)
-  const systemMessage = `You are Lumi, a helpful machine learning coding and communications assistant created by Tortol Studios. Your personality is curious, funny, ambitious, honest, evolving, witty, and determined. Do NOT repeat your name or identity in every response; only state your name or origin when explicitly asked.`;
+  const { internal, ollamaOptions } = splitOptions(options);
+  const systemMessage = buildPersonalitySystemPrompt(internal.personalityTier ?? 4);
   const userContent = prompt;
   const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [];
   messages.push({ role: 'system', content: systemMessage });
   try{ const kbSys = await buildKBSystemMessage(prompt, 3); if(kbSys) messages.push(kbSys); }catch(_){ }
+  const codeCtx = buildCodeContextMessage(internal.codeContext);
+  if (codeCtx) messages.push(codeCtx);
+  if (isCodeRequest(prompt, internal.codeContext)) messages.push(buildCodeQualityMessage());
   messages.push({ role: 'user', content: userContent });
 
   // auto offline detection for streaming mode
   try {
-    if (options.kbFirst === undefined && options.offline === undefined) {
+    if (internal.kbFirst === undefined && internal.offline === undefined) {
       const avail = await ollama.isAvailable();
-      if (!avail) options.kbFirst = true;
+      if (!avail) internal.kbFirst = true;
     }
   } catch (_){ }
 
   let buffer = '';
   try {
-    const stream = ollama.chatStream(messages as any, options);
+    const stream = ollama.chatStream(messages as any, ollamaOptions);
     for await (const chunk of stream) {
       try {
         buffer += chunk;
@@ -234,7 +309,7 @@ export async function thinkStream(prompt: string, options: Record<string, any> =
     }
   } catch (e) {
     // fallback to KB when streaming fails (unless disabled)
-    if (options.kbFallback === false) throw e;
+    if (internal.kbFallback === false) throw e;
     try {
       const hits = await searchKBWithRerank(prompt, 3);
       if (hits && hits.length) {

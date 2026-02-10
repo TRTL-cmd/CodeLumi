@@ -117,7 +117,18 @@ type PersonalityState = {
   rapport?: number;
   refused?: boolean;
   updatedAt?: string;
+  consecutiveNegative?: number;
+  responseQualityTier?: number; // 0-4 where 4 = best
+  recoveryCount?: number;
 };
+
+function computeQualityTier(rapport: number): number {
+  if (rapport >= 0.0) return 4;   // best: full detail, enthusiastic
+  if (rapport >= -0.3) return 3;  // normal: professional, concise
+  if (rapport >= -0.6) return 2;  // degraded: brief, no elaboration
+  if (rapport >= -0.85) return 1; // minimal: 1-2 sentences max, curt
+  return 0;                       // refused: won't respond
+}
 
 async function loadPersonalityState(): Promise<PersonalityState> {
   try {
@@ -152,23 +163,53 @@ function isApology(text: string) {
 async function updatePersonalityFromText(text: string, source = 'user') {
   try {
     const st = await loadPersonalityState();
-    const engine = new PersonalityEngine({ mood: st.mood as any, intensity: typeof st.intensity === 'number' ? st.intensity : 0.5 });
+    const consNeg = st.consecutiveNegative || 0;
+    const engine = new PersonalityEngine({
+      mood: st.mood as any,
+      intensity: typeof st.intensity === 'number' ? st.intensity : 0.5,
+      consecutiveNegative: consNeg,
+      responseQualityTier: st.responseQualityTier,
+    });
     const score = engine.analyzeSentiment(text || '');
+
     if (isApology(text)) {
-      st.refused = false;
-      st.rapport = Math.min(1, (st.rapport || 0) + 0.2);
-    } else {
-      if (score > 0) st.rapport = Math.min(1, (st.rapport || 0) + 0.1);
-      if (score < 0) st.rapport = Math.max(-1, (st.rapport || 0) - 0.15);
+      // Gradual recovery — NOT instant full reset
+      st.rapport = Math.min(1, (st.rapport || 0) + 0.25);
+      st.consecutiveNegative = Math.max(0, Math.floor(consNeg / 2));
+      st.recoveryCount = (st.recoveryCount || 0) + 1;
+      // Only unfuse when rapport naturally rises above -0.85
+      if ((st.rapport || 0) >= -0.85) st.refused = false;
+    } else if (score > 0) {
+      st.rapport = Math.min(1, (st.rapport || 0) + 0.1);
+      st.consecutiveNegative = 0;
+      st.recoveryCount = (st.recoveryCount || 0) + 1;
+      // Bonus for sustained good behavior
+      if ((st.recoveryCount || 0) >= 3) {
+        st.rapport = Math.min(1, (st.rapport || 0) + 0.05);
+        st.recoveryCount = 0;
+      }
+      if ((st.rapport || 0) >= -0.85) st.refused = false;
+    } else if (score < 0) {
+      // Accelerating degradation for consecutive negativity
+      const accel = 1 + (consNeg * 0.1);
+      st.rapport = Math.max(-1, (st.rapport || 0) - 0.15 * accel);
+      st.consecutiveNegative = consNeg + 1;
+      st.recoveryCount = 0;
     }
+
     engine.feed(text || '', source);
-    st.mood = (engine.getStats().mood as any) || st.mood;
-    st.intensity = engine.getStats().intensity || st.intensity;
-    if ((st.rapport || 0) < -0.6) st.refused = true;
+    const stats = engine.getStats();
+    st.mood = (stats.mood as any) || st.mood;
+    st.intensity = stats.intensity || st.intensity;
+
+    // Compute quality tier from rapport
+    st.responseQualityTier = computeQualityTier(st.rapport || 0);
+    if (st.responseQualityTier === 0) st.refused = true;
+
     await savePersonalityState(st);
     return st;
   } catch (_e) {
-    return { mood: 'neutral', intensity: 0.5, rapport: 0, refused: false } as PersonalityState;
+    return { mood: 'neutral', intensity: 0.5, rapport: 0, refused: false, responseQualityTier: 4 } as PersonalityState;
   }
 }
 
@@ -333,6 +374,10 @@ app.whenReady().then(async () => {
   try {
     (global as any).lumiKnowledgeProcessor = new KnowledgeProcessor();
     console.log('✅ KnowledgeProcessor instantiated');
+    try {
+      (global as any).lumiKnowledgeProcessor.scheduledCleanup({ threshold: 0.6, daysOld: 30, unusedDays: 45 });
+      console.log('✅ KnowledgeProcessor cleanup scheduled');
+    } catch (e) { console.warn('KnowledgeProcessor cleanup schedule failed', e); }
   } catch (e) { console.warn('KnowledgeProcessor init failed', e); }
 
   // Instantiate PersonalityManager to enforce single active tone
@@ -549,6 +594,21 @@ ipcMain.handle('selflearn:runNow', async () => {
   } catch (e: any) { return { ok: false, error: e?.message || String(e) }; }
 });
 
+// KB maintenance IPC
+ipcMain.handle('kb:prune', async (_event, threshold: number, daysOld: number) => {
+  try {
+    const kp: any = (global as any).lumiKnowledgeProcessor || new KnowledgeProcessor();
+    return await kp.pruneByConfidence(Number(threshold), Number(daysOld));
+  } catch (e: any) { return { ok: false, error: e?.message || String(e) }; }
+});
+
+ipcMain.handle('kb:detectStale', async (_event, unusedDays: number) => {
+  try {
+    const kp: any = (global as any).lumiKnowledgeProcessor || new KnowledgeProcessor();
+    return await kp.detectStaleEntries(Number(unusedDays));
+  } catch (e: any) { return { ok: false, error: e?.message || String(e) }; }
+});
+
 // Telemetry: renderer-reported crashes (local only)
 ipcMain.on('telemetry:crash', async (_event, payload: any) => {
   try {
@@ -644,11 +704,25 @@ ipcMain.handle('selflearn:list-duplicates', async () => {
   try {
     const repoTraining = getLumiPaths().trainingDir;
     const logFile = path.join(repoTraining, 'lumi_knowledge.dedupe.log.jsonl');
+    const kbFile = path.join(repoTraining, 'lumi_knowledge.json');
+    let kbArr: any[] = [];
+    try {
+      const kbRaw = await fs.readFile(kbFile, 'utf8');
+      const parsed = JSON.parse(kbRaw || '[]');
+      if (Array.isArray(parsed)) kbArr = parsed;
+      else if (parsed && Array.isArray(parsed.qa)) kbArr = parsed.qa;
+    } catch (_e) { kbArr = []; }
     try {
       const raw = await fs.readFile(logFile, 'utf8');
       const lines = raw.split(/\r?\n/).filter(Boolean).map(l => {
         try { return JSON.parse(l); } catch (_e) { return { raw: l }; }
       });
+      for (const ln of lines) {
+        const idx = Number(ln && ln.index);
+        if (Number.isFinite(idx) && kbArr[idx]) {
+          try { ln.entry = kbArr[idx]; } catch (_e) {}
+        }
+      }
       // Group by similar_to where available
       const groups: Record<string, any[]> = {};
       for (const ln of lines) {
@@ -661,6 +735,21 @@ ipcMain.handle('selflearn:list-duplicates', async () => {
       if (e.code === 'ENOENT') return { ok: true, groups: {}, raw: [] };
       throw e;
     }
+  } catch (e: any) { return { ok: false, error: e?.message || String(e) }; }
+});
+
+// Run semantic KB dedupe (executes scripts/dedupe_kb.js)
+ipcMain.handle('selflearn:run-dedupe', async () => {
+  try {
+    const script = path.join(process.cwd(), 'scripts', 'dedupe_kb.js');
+    try { await fs.access(script); } catch (_e) { return { ok: false, error: 'dedupe-script-missing' }; }
+    const result = await new Promise<{ ok: boolean; stdout?: string; stderr?: string; error?: string }>((resolve) => {
+      execFile(process.execPath, [script], { cwd: process.cwd(), windowsHide: true }, (err, stdout, stderr) => {
+        if (err) return resolve({ ok: false, error: err.message, stdout: String(stdout || ''), stderr: String(stderr || '') });
+        resolve({ ok: true, stdout: String(stdout || ''), stderr: String(stderr || '') });
+      });
+    });
+    return result;
   } catch (e: any) { return { ok: false, error: e?.message || String(e) }; }
 });
 
@@ -785,8 +874,8 @@ ipcMain.handle('lumi-save', async (event, data) => {
       // ignore write failures to repo folder
     }
     return { ok: true, path: file, trainingPath };
-  } catch (e) {
-    return { ok: false, error: e?.message };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || String(e) };
   }
 });
 
@@ -805,8 +894,8 @@ ipcMain.handle('lumi-shutdown', async () => {
   try {
     app.quit();
     return { ok: true };
-  } catch (e) {
-    return { ok: false, error: e?.message };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || String(e) };
   }
 });
 
@@ -843,13 +932,13 @@ ipcMain.handle('personality:set-tone', async () => {
 });
 
 // Brain IPC: simple invoke for single-response generation
-ipcMain.handle('lumi-think', async (_event, prompt: string, options = {}) => {
+ipcMain.handle('lumi-think', async (_event, prompt: string, options: any = {}) => {
   try {
     const st = await updatePersonalityFromText(prompt || '', 'user');
-    if (st.refused && !isApology(prompt || '')) {
+    if ((st.responseQualityTier ?? 4) === 0 && !isApology(prompt || '')) {
       return { ok: true, output: "Let's keep it respectful. I'm happy to help when we're civil." };
     }
-    const out = await think(prompt, options);
+    const out = await think(prompt, { ...options, personalityTier: st.responseQualityTier ?? 4 });
     const toned = await applyToneToText(out);
     return { ok: true, output: toned };
   } catch (e: any) {
@@ -858,15 +947,15 @@ ipcMain.handle('lumi-think', async (_event, prompt: string, options = {}) => {
 });
 
 // Brain IPC: chat-style
-ipcMain.handle('lumi-chat', async (_event, messages: any[], options = {}) => {
+ipcMain.handle('lumi-chat', async (_event, messages: any[], options: any = {}) => {
   try {
     const lastUser = Array.isArray(messages) ? [...messages].reverse().find(m => m && m.role === 'user') : null;
     const lastText = lastUser && lastUser.content ? String(lastUser.content) : '';
     const st = await updatePersonalityFromText(lastText, 'user');
-    if (st.refused && !isApology(lastText || '')) {
+    if ((st.responseQualityTier ?? 4) === 0 && !isApology(lastText || '')) {
       return { ok: true, output: "Let's keep it respectful. I'm happy to help when we're civil." };
     }
-    const out = await thinkChat(messages, options);
+    const out = await thinkChat(messages, { ...options, personalityTier: st.responseQualityTier ?? 4 });
     const toned = await applyToneToText(out);
     return { ok: true, output: toned };
   } catch (e: any) {
@@ -875,21 +964,36 @@ ipcMain.handle('lumi-chat', async (_event, messages: any[], options = {}) => {
 });
 
 // Brain IPC: streaming. Renderer should listen for 'lumi-think-chunk' and 'lumi-think-done'.
-ipcMain.on('lumi-think-stream-start', async (event, prompt: string, options = {}) => {
+ipcMain.on('lumi-think-stream-start', async (event, prompt: string, options: any = {}) => {
   const sender = event.sender;
   try {
     const st = await updatePersonalityFromText(prompt || '', 'user');
-    if (st.refused && !isApology(prompt || '')) {
+    if ((st.responseQualityTier ?? 4) === 0 && !isApology(prompt || '')) {
       sender.send('lumi-think-chunk', "Let's keep it respectful. I'm happy to help when we're civil.");
       sender.send('lumi-think-done');
       return;
     }
-    await thinkStream(prompt, options, (chunk: string) => {
+    await thinkStream(prompt, { ...options, personalityTier: st.responseQualityTier ?? 4 }, (chunk: string) => {
       sender.send('lumi-think-chunk', chunk);
     });
     sender.send('lumi-think-done');
   } catch (e: any) {
     sender.send('lumi-think-error', e?.message || String(e));
+  }
+});
+
+// Sandbox: Lumi generates/modifies code given a task and existing code context
+ipcMain.handle('sandbox:generate', async (_event, task: string, existingCode?: string, language?: string) => {
+  try {
+    const codeBlock = existingCode ? `\`\`\`${language || ''}\n${(existingCode || '').slice(0, 8000)}\n\`\`\`` : '';
+    const prompt = existingCode
+      ? `You have the following existing code:\n${codeBlock}\n\nTask: ${task}\n\nProvide ONLY the updated/new code. Do not explain, just output the code inside a code fence.`
+      : `Task: ${task}\n\nProvide ONLY the code. Do not explain, just output the code inside a code fence.`;
+    const st = await loadPersonalityState();
+    const out = await think(prompt, { personalityTier: st.responseQualityTier ?? 4, num_predict: 4000 });
+    return { ok: true, code: String(out || '') };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || String(e) };
   }
 });
 
@@ -917,7 +1021,8 @@ ipcMain.handle('memory-add', async (_event, entry: any) => {
     // run threat detection
     try {
       const s = Threat.scanMemoryEntry(entry);
-      if (s.suspicious) {
+      const codeLikeOnly = s.reasons && s.reasons.length === 1 && s.reasons[0] === 'code-like';
+      if (s.suspicious && !codeLikeOnly) {
         // quarantine to staging for manual review
         try {
           const stagingFile = getLumiPaths().stagingFile;
@@ -1124,6 +1229,16 @@ ipcMain.handle('lumi:health-check', async () => {
   }
 });
 
+ipcMain.handle('ollama:status', async () => {
+  try {
+    const { ollama } = await import('./core/llm/ollama.js');
+    const available = await ollama.isAvailable();
+    return { ok: true, available };
+  } catch (e: any) {
+    return { ok: false, available: false, error: e?.message || String(e) };
+  }
+});
+
 ipcMain.handle('lumi:backup-now', async () => {
   try {
     const results = await getBackupManager().backupAll();
@@ -1176,7 +1291,8 @@ ipcMain.handle('lumi-log-assistant', async (_event, question: string, answer: st
 
     // threat detection: if suspicious, quarantine to staging instead of merging
     const scan = Threat.scanQA(question, answer);
-    if (scan.suspicious) {
+    const codeLikeOnly = scan.reasons && scan.reasons.length === 1 && scan.reasons[0] === 'code-like';
+    if (scan.suspicious && !codeLikeOnly) {
       try {
         const stagingFile = getLumiPaths().stagingFile;
         await fs.mkdir(path.dirname(stagingFile), { recursive: true });
@@ -1308,6 +1424,30 @@ ipcMain.handle('staging:delete', async (_event, id: string) => {
     return { ok: true };
   } catch (e: any) {
     console.error('[IPC] staging:delete error', e);
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+ipcMain.handle('staging:bulk-tag', async (_event, ids: string[], tag: string) => {
+  try {
+    const cleanTag = String(tag || '').trim();
+    if (!cleanTag) return { ok: false, error: 'tag-empty' };
+    const idSet = new Set((ids || []).map(x => String(x)));
+    if (!idSet.size) return { ok: false, error: 'no-ids' };
+    const all = await StagingManager.loadStaging();
+    let updated = 0;
+    for (const it of all) {
+      if (!idSet.has(String(it.id))) continue;
+      const tags = Array.isArray(it.tags) ? it.tags.slice() : [];
+      if (!tags.includes(cleanTag)) tags.push(cleanTag);
+      it.tags = tags;
+      updated += 1;
+    }
+    if (updated > 0) await StagingManager.saveStaging(all);
+    sendCuratorEvent('staging-updated', { action: 'bulk-tag', count: updated, tag: cleanTag });
+    return { ok: true, updated };
+  } catch (e: any) {
+    console.error('[IPC] staging:bulk-tag error', e);
     return { ok: false, error: e?.message || String(e) };
   }
 });

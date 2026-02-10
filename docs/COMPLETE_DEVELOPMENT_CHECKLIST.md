@@ -156,41 +156,41 @@
 
 #### Performance Benchmarking (3-4 hours, optional)
 
-- [ ] 111. Create `scripts/benchmark.js`
-- [ ] 112. Add benchmark: LLM response time (tokens/sec)
-- [ ] 113. Add benchmark: KB search speed (queries/sec)
-- [ ] 114. Add benchmark: Code merge accuracy (% correct)
-- [ ] 115. Add benchmark: Memory usage over time
-- [ ] 116. Add benchmark: Startup time (cold vs warm)
-- [ ] 117. Add benchmark: Self-learning rate (entries/hour)
-- [ ] 118. Run benchmarks on baseline system
-- [ ] 119. Save results to `benchmarks/baseline.json`
-- [ ] 120. Document benchmark methodology in `benchmarks/README.md`
+- [x] 111. Create `scripts/benchmark.js`
+- [x] 112. Add benchmark: LLM response time (tokens/sec)
+- [x] 113. Add benchmark: KB search speed (queries/sec)
+- [x] 114. Add benchmark: Code merge accuracy (% correct)
+- [x] 115. Add benchmark: Memory usage over time
+- [x] 116. Add benchmark: Startup time (cold vs warm)
+- [x] 117. Add benchmark: Self-learning rate (entries/hour)
+- [x] 118. Run benchmarks on baseline system
+- [x] 119. Save results to `benchmarks/baseline.json`
+- [x] 120. Document benchmark methodology in `benchmarks/README.md`
 
 ### Week 3: Packaging & Launch (Steps 121-150)
 
 #### Packaging Preparation
 
-- [ ] 121. Install electron-builder: `npm install --save-dev electron-builder`
-- [ ] 122. Add build config to `package.json` under `build` key
-- [ ] 123. Configure Windows build: `.exe` and `.msi` targets
-- [ ] 124. Configure macOS build: `.dmg` target
-- [ ] 125. Configure Linux build: `.AppImage` and `.deb` targets
-- [ ] 126. Set app name, version, and author in `package.json`
-- [ ] 127. Add icon files: `build/icon.png` (1024x1024)
-- [ ] 128. Add icon files: `build/icon.ico` (Windows)
-- [ ] 129. Add icon files: `build/icon.icns` (macOS)
-- [ ] 130. Configure code signing (optional for beta)
-- [ ] 131. Run build: `npm run build`
-- [ ] 132. Run package: `npm run package` (or `electron-builder`)
-- [ ] 133. Verify `dist/` contains packaged apps
-- [ ] 134. Test Windows installer on Windows machine
-- [ ] 135. Test macOS installer on Mac machine
-- [ ] 136. Test Linux AppImage on Linux machine
-- [ ] 137. Check app launches correctly
-- [ ] 138. Check Ollama connection works
-- [ ] 139. Check all features functional in packaged version
-- [ ] 140. Document any packaging issues
+- [x] 121. Install electron-builder: `npm install --save-dev electron-builder`
+- [x] 122. Add build config to `package.json` under `build` key
+- [x] 123. Configure Windows build: `.exe` and `.msi` targets
+- [x] 124. Configure macOS build: `.dmg` target
+- [x] 125. Configure Linux build: `.AppImage` and `.deb` targets
+- [x] 126. Set app name, version, and author in `package.json`
+- [x] 127. Add icon files: `build/icon.png` (1024x1024)
+- [x] 128. Add icon files: `build/icon.ico` (Windows)
+- [x] 129. Add icon files: `build/icon.icns` (macOS)
+- [x] 130. Configure code signing (optional for beta)
+- [x] 131. Run build: `npm run build`
+- [x] 132. Run package: `npm run package` (or `electron-builder`)
+- [x] 133. Verify `dist/` contains packaged apps
+- [x] 134. Test Windows installer on Windows machine
+- [x] 135. Test macOS installer on Mac machine
+- [x] 136. Test Linux AppImage on Linux machine
+- [x] 137. Check app launches correctly
+- [x] 138. Check Ollama connection works
+- [x] 139. Check all features functional in packaged version
+- [x] 140. Document any packaging issues
 
 #### GitHub Release Preparation
 

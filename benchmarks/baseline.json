@@ -1,0 +1,84 @@
+{
+  "generatedAt": "2026-02-10T02:05:15.285Z",
+  "system": {
+    "platform": "win32",
+    "arch": "x64",
+    "nodeVersion": "v20.10.0",
+    "cpuCount": 16,
+    "totalMemoryGb": 15.92
+  },
+  "benchmarks": {
+    "llmResponse": {
+      "ok": true,
+      "model": "gemma3:4b",
+      "durationMs": 950.34,
+      "tokenCount": 55,
+      "tokensPerSec": 57.87
+    },
+    "kbSearch": {
+      "ok": true,
+      "indexed": null,
+      "indexMs": 0.23,
+      "warmIndexMs": 0.05,
+      "avgSearchMs": 0,
+      "queriesPerSec": 304321.43,
+      "warmIndexed": null
+    },
+    "mergeAccuracy": {
+      "ok": true,
+      "totalCases": 5,
+      "correct": 4,
+      "accuracyPct": 80,
+      "results": [
+        {
+          "expected": "auto_merge",
+          "decision": "auto_merge",
+          "threatScore": 0,
+          "suspicious": false
+        },
+        {
+          "expected": "quarantine",
+          "decision": "quarantine",
+          "threatScore": 6,
+          "suspicious": true
+        },
+        {
+          "expected": "auto_merge",
+          "decision": "auto_merge",
+          "threatScore": 0,
+          "suspicious": false
+        },
+        {
+          "expected": "quarantine",
+          "decision": "auto_merge",
+          "threatScore": 0,
+          "suspicious": false
+        },
+        {
+          "expected": "quarantine",
+          "decision": "quarantine",
+          "threatScore": 0,
+          "suspicious": false
+        }
+      ]
+    },
+    "memoryUsage": {
+      "ok": true,
+      "endRssMb": 43.55,
+      "endHeapUsedMb": 7.84,
+      "peakRssMb": 43.42,
+      "peakHeapUsedMb": 7.73,
+      "sampleCount": 2
+    },
+    "startupProxy": {
+      "coldIndexMs": 0.23,
+      "warmIndexMs": 0.05
+    },
+    "selfLearningRate": {
+      "ok": true,
+      "filePath": "training\\self-learn\\selflearn_store.jsonl",
+      "entries24h": 0,
+      "entriesPerHour": 0
+    }
+  }
+}

@@ -6,8 +6,8 @@ This document records a comprehensive, timestamped account of work conducted on 
 
 Environment
 -----------
-- OS: Windows (user environment: C:\Users\Chris\OneDrive\Desktop\Lumi)
-- Project root: C:\Users\Chris\OneDrive\Desktop\Lumi
+- OS: Windows
+- Project root: 
 - Notable folders touched: `index.html`, `dist/index.html`, `training/lumi_knowledge.json`, `userData/lumi_knowledge.json`
 - Tools used: VS Code, PowerShell, Node toolchain (tsc, npm), in-repo scripts
 - Active virtualenv: .venv (powershell activation observed)
