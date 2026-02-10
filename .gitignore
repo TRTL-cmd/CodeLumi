@@ -61,6 +61,10 @@ tests/unit/knowledge-processor.test.ts
 tests/
 test/
 
+# Private planning/checklists
+docs/DEVELOPMENT_CHECKLIST.md
+docs/COMPLETE_DEVELOPMENT_CHECKLIST.md
+
 # Keep .husky/ committed so hooks are part of the repo when initialized
 .venv/
 node_modules/
