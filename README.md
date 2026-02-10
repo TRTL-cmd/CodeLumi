@@ -426,7 +426,7 @@ You may not:
 - Redistribute Lumi
 - Sell Lumi or derivatives
 - Remove copyright notices
-- Use Lumi name or branding without permission
+- Use CodeLumi name or branding without permission
 
 ## About
 
