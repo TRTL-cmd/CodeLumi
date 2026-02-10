@@ -151,7 +151,7 @@
 - [x] 106. Verify `.gitignore` includes `userData/logs/`
 - [x] 107. Delete any existing `userData/backups/` from repo
 - [x] 108. Delete any existing `userData/logs/` from repo
-- [ ] 109. Commit all privacy fixes
+- [x] 109. Commit all privacy fixes
 - [x] 110. Run one final privacy audit to confirm clean
 
 #### Performance Benchmarking (3-4 hours, optional)
