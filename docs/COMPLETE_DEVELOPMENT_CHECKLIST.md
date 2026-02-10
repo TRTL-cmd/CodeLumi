@@ -194,7 +194,7 @@
 
 #### GitHub Release Preparation
 
-- [ ] 141. Create annotated git tag: `git tag -a v0.1.0-beta -m "Beta Release v0.1.0"`
+- [x] 141. Create annotated git tag: `git tag -a v0.1.0-beta -m "Beta Release v0.1.0"`
 - [ ] 142. Push tag: `git push origin v0.1.0-beta`
 - [ ] 143. Go to GitHub → Releases → Draft new release
 - [ ] 144. Select tag: `v0.1.0-beta`
